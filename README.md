@@ -2,11 +2,28 @@
 
 Sistema de gerenciamento de pedidos de fardamentos com controle de estoque, clientes, produtos e relatórios.
 
-## Funcionalidades
+## 🆕 Novas Funcionalidades na Versão 8.0
+
+### ✅ Produtos Vinculados às Escolas
+- Cada produto agora é cadastrado para uma escola específica
+- Filtros por escola em todas as telas de produtos
+- Relatórios mostram a escola de cada produto
+
+### ✅ Clientes Simplificados
+- Removido o vínculo de escolas dos clientes
+- Clientes podem comprar produtos de qualquer escola
+- Cadastro de clientes mais simples e rápido
+
+### ✅ Melhorias na Interface
+- Filtros por escola em produtos e estoque
+- Visualização da escola em todos os lugares
+- Interface mais limpa e intuitiva
+
+## Funcionalidades Principais
 - 📊 Dashboard com métricas em tempo real
 - 📦 Gestão completa de pedidos
-- 👥 Cadastro de clientes com múltiplas escolas
-- 👕 Cadastro de produtos com categorias
+- 👥 Cadastro simplificado de clientes
+- 👕 Cadastro de produtos vinculados a escolas
 - 📦 Controle de estoque automático
 - 📈 Relatórios detalhados de vendas
 - 🔐 Sistema de login com múltiplos usuários
@@ -14,22 +31,6 @@ Sistema de gerenciamento de pedidos de fardamentos com controle de estoque, clie
 ## Login
 - **Admin:** admin / Admin@2024!
 - **Vendedor:** vendedor / Vendas@123
-
-## Funcionalidades Implementadas
-
-### ✅ Completamente Funcionais
-- **Dashboard** com métricas e ações rápidas
-- **Gestão de Clientes** (cadastro, listagem, exclusão)
-- **Gestão de Produtos** (cadastro, listagem)
-- **Controle de Estoque** (ajuste manual)
-- **Sistema de Login** com diferentes níveis de acesso
-- **Relatórios Detalhados** (vendas, produtos, clientes)
-
-### 🚀 Novas Funcionalidades
-- **Sistema Completo de Pedidos** com múltiplos itens
-- **Relatórios Interativos** com gráficos
-- **Ações Rápidas** no dashboard funcionando
-- **Controle de Estoque Automático** nos pedidos
 
 ## Deploy no Render
 1. Conecte seu repositório GitHub
