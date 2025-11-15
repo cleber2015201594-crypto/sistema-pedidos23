@@ -2,20 +2,27 @@
 
 Sistema de gerenciamento de pedidos de fardamentos com controle de estoque, clientes, produtos e relatórios.
 
-## 🆕 Novas Funcionalidades na Versão 8.0
+## 🆕 Correções na Versão 8.1
+
+### ✅ Correção do Banco de Dados
+- **Sistema de atualização automática** da estrutura do banco
+- **Verificação de colunas** antes de executar queries
+- **Compatibilidade** com bancos existentes e novos
+
+### ✅ Ações Rápidas Funcionando
+- **Navegação corrigida** entre páginas
+- **Sistema de query params** para mudança de menu
 
 ### ✅ Status de Pedidos Aprimorado
-- **Novos status**: Pendente, Em produção, Pronto para entrega, Entregue, Cancelado
+- **5 status diferentes**: Pendente, Em produção, Pronto para entrega, Entregue, Cancelado
 - **Controle completo** do fluxo do pedido
 - **Data de entrega real** registrada automaticamente
 
-### ✅ Forma de Pagamento
-- **Múltiplas opções**: Dinheiro, Cartão de Crédito, Cartão de Débito, PIX, Transferência
-- **Registro no pedido** para controle financeiro
-
-### ✅ Correção do Banco de Dados
-- **Campo escola_id** adicionado na tabela produtos
-- **Estrutura corrigida** para evitar erros
+## Como Funciona a Atualização do Banco
+O sistema agora verifica automaticamente se as colunas necessárias existem e as cria se necessário:
+1. `escola_id` na tabela `produtos`
+2. `forma_pagamento` na tabela `pedidos`  
+3. `data_entrega_real` na tabela `pedidos`
 
 ## Funcionalidades Principais
 - 📊 Dashboard com métricas em tempo real
@@ -25,13 +32,6 @@ Sistema de gerenciamento de pedidos de fardamentos com controle de estoque, clie
 - 📦 Controle de estoque automático
 - 📈 Relatórios detalhados de vendas
 - 🔐 Sistema de login com múltiplos usuários
-
-## Status dos Pedidos
-- 🟡 **Pendente**: Pedido recebido
-- 🟠 **Em produção**: Em confecção
-- 🔵 **Pronto para entrega**: Aguardando retirada/entrega
-- 🟢 **Entregue**: Finalizado com sucesso
-- 🔴 **Cancelado**: Pedido cancelado
 
 ## Login
 - **Admin:** admin / Admin@2024!
