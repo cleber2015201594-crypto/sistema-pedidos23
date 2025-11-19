@@ -10,25 +10,39 @@ import time
 from contextlib import contextmanager
 
 # =========================================
-# ⚡ OTIMIZAÇÕES DE PERFORMANCE
+# 🚀 CONFIGURAÇÃO PARA RENDER
 # =========================================
 
-# Cache para consultas frequentes
-@st.cache_data(ttl=300)  # 5 minutos
+# Verificar se está rodando no Render
+IS_RENDER = 'RENDER' in os.environ
+
+# =========================================
+# ⚡ OTIMIZAÇÕES DE PERFORMANCE - CORRIGIDAS
+# =========================================
+
+@st.cache_data(ttl=300)
 def listar_escolas_cached():
-    return listar_escolas()
+    escolas = listar_escolas()
+    # Converter sqlite3.Row para lista de dicionários serializáveis
+    return [dict(escola) for escola in escolas]
 
 @st.cache_data(ttl=300)
 def listar_clientes_cached():
-    return listar_clientes()
+    clientes = listar_clientes()
+    # Converter sqlite3.Row para lista de dicionários serializáveis
+    return [dict(cliente) for cliente in clientes]
 
-@st.cache_data(ttl=180)  # 3 minutos
+@st.cache_data(ttl=180)
 def listar_produtos_por_escola_cached(escola_id):
-    return listar_produtos_por_escola(escola_id)
+    produtos = listar_produtos_por_escola(escola_id)
+    # Converter sqlite3.Row para lista de dicionários serializáveis
+    return [dict(produto) for produto in produtos]
 
-@st.cache_data(ttl=120)  # 2 minutos
+@st.cache_data(ttl=120)
 def listar_pedidos_por_escola_cached(escola_id=None):
-    return listar_pedidos_por_escola(escola_id)
+    pedidos = listar_pedidos_por_escola(escola_id)
+    # Converter sqlite3.Row para lista de dicionários serializáveis
+    return [dict(pedido) for pedido in pedidos]
 
 # =========================================
 # 🔐 SISTEMA DE AUTENTICAÇÃO - SQLITE
@@ -381,7 +395,8 @@ def obter_escola_por_id(escola_id):
     try:
         cur = conn.cursor()
         cur.execute("SELECT * FROM escolas WHERE id = ?", (escola_id,))
-        return cur.fetchone()
+        resultado = cur.fetchone()
+        return dict(resultado) if resultado else None
     except Exception as e:
         st.error(f"Erro ao obter escola: {e}")
         return None
@@ -603,7 +618,7 @@ def adicionar_pedido(cliente_id, escola_id, itens, data_entrega, forma_pagamento
         
         for item in itens:
             cur.execute('''
-                INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, subtotal)
+                INSERT INTO pedido_itens (pedido_id, produto_id, quantidade, preco_unitario, substotal)
                 VALUES (?, ?, ?, ?, ?)
             ''', (pedido_id, item['produto_id'], item['quantidade'], item['preco_unitario'], item['subtotal']))
             # ⚠️ REMOVIDA A ATUALIZAÇÃO DE ESTOQUE AQUI
@@ -887,7 +902,7 @@ def gerar_relatorio_produtos_por_escola(escola_id=None):
         conn.close()
 
 # =========================================
-# 🎨 INTERFACE PRINCIPAL
+# 🎨 INTERFACE PRINCIPAL - ATUALIZADA PARA DICIONÁRIOS
 # =========================================
 
 # Sidebar - Informações do usuário
@@ -971,57 +986,57 @@ elif menu == "📈 Relatórios":
 st.markdown("---")
 
 # =========================================
-# 📱 PÁGINAS DO SISTEMA
+# 📱 PÁGINAS DO SISTEMA - ATUALIZADAS PARA DICIONÁRIOS
 # =========================================
 
 if menu == "📊 Dashboard":
     st.header("🎯 Métricas em Tempo Real")
     
     # Carregar dados usando cache
-    escolas = listar_escolas_cached()
-    clientes = listar_clientes_cached()
+    escolas_dict = listar_escolas_cached()
+    clientes_dict = listar_clientes_cached()
     
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         total_pedidos = 0
-        for escola in escolas:
-            pedidos = listar_pedidos_por_escola_cached(escola[0])
+        for escola in escolas_dict:
+            pedidos = listar_pedidos_por_escola_cached(escola['id'])
             total_pedidos += len(pedidos)
         st.metric("Total de Pedidos", total_pedidos)
     
     with col2:
         pedidos_pendentes = 0
-        for escola in escolas:
-            pedidos = listar_pedidos_por_escola_cached(escola[0])
-            pedidos_pendentes += len([p for p in pedidos if p[3] == 'Pendente'])
+        for escola in escolas_dict:
+            pedidos = listar_pedidos_por_escola_cached(escola['id'])
+            pedidos_pendentes += len([p for p in pedidos if p['status'] == 'Pendente'])
         st.metric("Pedidos Pendentes", pedidos_pendentes)
     
     with col3:
-        st.metric("Clientes Ativos", len(clientes))
+        st.metric("Clientes Ativos", len(clientes_dict))
     
     with col4:
         produtos_baixo_estoque = 0
-        for escola in escolas:
-            produtos = listar_produtos_por_escola_cached(escola[0])
-            produtos_baixo_estoque += len([p for p in produtos if p[6] < 5])
+        for escola in escolas_dict:
+            produtos = listar_produtos_por_escola_cached(escola['id'])
+            produtos_baixo_estoque += len([p for p in produtos if p['estoque'] < 5])
         st.metric("Alertas de Estoque", produtos_baixo_estoque, delta=-produtos_baixo_estoque)
     
     # Métricas por Escola
     st.header("🏫 Métricas por Escola")
-    escolas_cols = st.columns(len(escolas))
+    escolas_cols = st.columns(len(escolas_dict))
     
-    for idx, escola in enumerate(escolas):
+    for idx, escola in enumerate(escolas_dict):
         with escolas_cols[idx]:
-            st.subheader(escola[1])
+            st.subheader(escola['nome'])
             
             # Pedidos da escola
-            pedidos_escola = listar_pedidos_por_escola_cached(escola[0])
-            pedidos_pendentes_escola = len([p for p in pedidos_escola if p[3] == 'Pendente'])
+            pedidos_escola = listar_pedidos_por_escola_cached(escola['id'])
+            pedidos_pendentes_escola = len([p for p in pedidos_escola if p['status'] == 'Pendente'])
             
             # Produtos da escola
-            produtos_escola = listar_produtos_por_escola_cached(escola[0])
-            produtos_baixo_estoque_escola = len([p for p in produtos_escola if p[6] < 5])
+            produtos_escola = listar_produtos_por_escola_cached(escola['id'])
+            produtos_baixo_estoque_escola = len([p for p in produtos_escola if p['estoque'] < 5])
             
             st.metric("Pedidos", len(pedidos_escola))
             st.metric("Pendentes", pedidos_pendentes_escola)
@@ -1070,17 +1085,17 @@ elif menu == "👥 Clientes":
     
     with tab2:
         st.header("📋 Clientes Cadastrados")
-        clientes = listar_clientes_cached()
+        clientes_dict = listar_clientes_cached()
         
-        if clientes:
+        if clientes_dict:
             dados = []
-            for cliente in clientes:
+            for cliente in clientes_dict:
                 dados.append({
-                    'ID': cliente[0],
-                    'Nome': cliente[1],
-                    'Telefone': cliente[2] or 'N/A',
-                    'Email': cliente[3] or 'N/A',
-                    'Data Cadastro': formatar_data_brasil(cliente[4])
+                    'ID': cliente['id'],
+                    'Nome': cliente['nome'],
+                    'Telefone': cliente['telefone'] or 'N/A',
+                    'Email': cliente['email'] or 'N/A',
+                    'Data Cadastro': formatar_data_brasil(cliente['data_cadastro'])
                 })
             
             st.dataframe(pd.DataFrame(dados), use_container_width=True)
@@ -1089,12 +1104,12 @@ elif menu == "👥 Clientes":
     
     with tab3:
         st.header("🗑️ Excluir Cliente")
-        clientes = listar_clientes_cached()
+        clientes_dict = listar_clientes_cached()
         
-        if clientes:
+        if clientes_dict:
             cliente_selecionado = st.selectbox(
                 "Selecione o cliente para excluir:",
-                [f"{c[1]} (ID: {c[0]})" for c in clientes]
+                [f"{c['nome']} (ID: {c['id']})" for c in clientes_dict]
             )
             
             if cliente_selecionado:
@@ -1112,19 +1127,19 @@ elif menu == "👥 Clientes":
             st.info("👥 Nenhum cliente cadastrado")
 
 elif menu == "👕 Produtos":
-    escolas = listar_escolas_cached()
+    escolas_dict = listar_escolas_cached()
     
-    if not escolas:
+    if not escolas_dict:
         st.error("❌ Nenhuma escola cadastrada. Cadastre escolas primeiro.")
         st.stop()
     
     # Seleção da escola PRIMEIRO
     escola_selecionada_nome = st.selectbox(
         "🏫 Selecione a Escola:",
-        [e[1] for e in escolas],
+        [e['nome'] for e in escolas_dict],
         key="produtos_escola"
     )
-    escola_id = next(e[0] for e in escolas if e[1] == escola_selecionada_nome)
+    escola_id = next(e['id'] for e in escolas_dict if e['nome'] == escola_selecionada_nome)
     
     st.header(f"👕 Produtos - {escola_selecionada_nome}")
     
@@ -1133,8 +1148,8 @@ elif menu == "👕 Produtos":
     
     with tab1:
         # Lista organizada de produtos com busca/filtro
-        produtos = listar_produtos_por_escola_cached(escola_id)
-        if produtos:
+        produtos_dict = listar_produtos_por_escola_cached(escola_id)
+        if produtos_dict:
             # Filtros rápidos
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -1145,30 +1160,30 @@ elif menu == "👕 Produtos":
                 busca_nome = st.text_input("Buscar por nome:")
             
             # Aplicar filtros
-            produtos_filtrados = produtos
+            produtos_filtrados = produtos_dict
             if filtro_categoria != "Todas":
-                produtos_filtrados = [p for p in produtos_filtrados if p[2] == filtro_categoria]
+                produtos_filtrados = [p for p in produtos_filtrados if p['categoria'] == filtro_categoria]
             if filtro_tamanho != "Todos":
-                produtos_filtrados = [p for p in produtos_filtrados if p[3] == filtro_tamanho]
+                produtos_filtrados = [p for p in produtos_filtrados if p['tamanho'] == filtro_tamanho]
             if busca_nome:
-                produtos_filtrados = [p for p in produtos_filtrados if busca_nome.lower() in p[1].lower()]
+                produtos_filtrados = [p for p in produtos_filtrados if busca_nome.lower() in p['nome'].lower()]
             
             # Exibir produtos
             for produto in produtos_filtrados:
-                status_estoque = "✅" if produto[6] >= 10 else "⚠️" if produto[6] >= 5 else "❌"
+                status_estoque = "✅" if produto['estoque'] >= 10 else "⚠️" if produto['estoque'] >= 5 else "❌"
                 
-                with st.expander(f"{status_estoque} {produto[1]} - {produto[3]} - {produto[4]} | Estoque: {produto[6]} | R$ {produto[5]:.2f}"):
+                with st.expander(f"{status_estoque} {produto['nome']} - {produto['tamanho']} - {produto['cor']} | Estoque: {produto['estoque']} | R$ {produto['preco']:.2f}"):
                     col1, col2 = st.columns([3,1])
                     with col1:
-                        st.write(f"**Categoria:** {produto[2]}")
-                        st.write(f"**Descrição:** {produto[7] or 'Sem descrição'}")
-                        st.write(f"**Data Cadastro:** {formatar_data_brasil(produto[9])}")
+                        st.write(f"**Categoria:** {produto['categoria']}")
+                        st.write(f"**Descrição:** {produto['descricao'] or 'Sem descrição'}")
+                        st.write(f"**Data Cadastro:** {formatar_data_brasil(produto['data_cadastro'])}")
                     with col2:
                         # Edição rápida de estoque
-                        novo_estoque = st.number_input("Estoque:", value=produto[6], min_value=0, key=f"estoque_{produto[0]}")
-                        if st.button("💾 Atualizar", key=f"btn_{produto[0]}"):
-                            if novo_estoque != produto[6]:
-                                sucesso, msg = atualizar_estoque(produto[0], novo_estoque)
+                        novo_estoque = st.number_input("Estoque:", value=produto['estoque'], min_value=0, key=f"estoque_{produto['id']}")
+                        if st.button("💾 Atualizar", key=f"btn_{produto['id']}"):
+                            if novo_estoque != produto['estoque']:
+                                sucesso, msg = atualizar_estoque(produto['id'], novo_estoque)
                                 if sucesso:
                                     st.success(msg)
                                     st.rerun()
@@ -1214,23 +1229,23 @@ elif menu == "👕 Produtos":
     
     with tab3:
         # Estatísticas visuais
-        produtos = listar_produtos_por_escola_cached(escola_id)
-        if produtos:
+        produtos_dict = listar_produtos_por_escola_cached(escola_id)
+        if produtos_dict:
             col1, col2, col3 = st.columns(3)
             with col1:
-                total_produtos = len(produtos)
+                total_produtos = len(produtos_dict)
                 st.metric("Total de Produtos", total_produtos)
             with col2:
-                total_estoque = sum(p[6] for p in produtos)
+                total_estoque = sum(p['estoque'] for p in produtos_dict)
                 st.metric("Estoque Total", total_estoque)
             with col3:
-                baixo_estoque = len([p for p in produtos if p[6] < 5])
+                baixo_estoque = len([p for p in produtos_dict if p['estoque'] < 5])
                 st.metric("Produtos com Estoque Baixo", baixo_estoque)
             
             # Gráfico por categoria
             categorias_count = {}
-            for p in produtos:
-                cat = p[2]
+            for p in produtos_dict:
+                cat = p['categoria']
                 categorias_count[cat] = categorias_count.get(cat, 0) + 1
             
             if categorias_count:
@@ -1243,12 +1258,12 @@ elif menu == "👕 Produtos":
     
     with tab4:
         st.header("🗑️ Excluir Produto")
-        produtos = listar_produtos_por_escola_cached(escola_id)
+        produtos_dict = listar_produtos_por_escola_cached(escola_id)
         
-        if produtos:
+        if produtos_dict:
             produto_selecionado = st.selectbox(
                 "Selecione o produto para excluir:",
-                [f"{p[1]} - {p[3]} - {p[4]} (ID: {p[0]})" for p in produtos]
+                [f"{p['nome']} - {p['tamanho']} - {p['cor']} (ID: {p['id']})" for p in produtos_dict]
             )
             
             if produto_selecionado:
@@ -1268,28 +1283,28 @@ elif menu == "👕 Produtos":
             st.info("📭 Nenhum produto cadastrado para esta escola")
 
 elif menu == "📦 Estoque":
-    escolas = listar_escolas_cached()
+    escolas_dict = listar_escolas_cached()
     
-    if not escolas:
+    if not escolas_dict:
         st.error("❌ Nenhuma escola cadastrada. Configure as escolas primeiro.")
         st.stop()
     
     # Abas por escola
-    tabs = st.tabs([f"🏫 {e[1]}" for e in escolas])
+    tabs = st.tabs([f"🏫 {e['nome']}" for e in escolas_dict])
     
-    for idx, escola in enumerate(escolas):
+    for idx, escola in enumerate(escolas_dict):
         with tabs[idx]:
-            st.header(f"📦 Controle de Estoque - {escola[1]}")
+            st.header(f"📦 Controle de Estoque - {escola['nome']}")
             
-            produtos = listar_produtos_por_escola_cached(escola[0])
+            produtos_dict = listar_produtos_por_escola_cached(escola['id'])
             
-            if produtos:
+            if produtos_dict:
                 # Métricas da escola
                 col1, col2, col3, col4 = st.columns(4)
-                total_produtos = len(produtos)
-                total_estoque = sum(p[6] for p in produtos)
-                produtos_baixo_estoque = len([p for p in produtos if p[6] < 5])
-                produtos_sem_estoque = len([p for p in produtos if p[6] == 0])
+                total_produtos = len(produtos_dict)
+                total_estoque = sum(p['estoque'] for p in produtos_dict)
+                produtos_baixo_estoque = len([p for p in produtos_dict if p['estoque'] < 5])
+                produtos_sem_estoque = len([p for p in produtos_dict if p['estoque'] == 0])
                 
                 with col1:
                     st.metric("Total Produtos", total_produtos)
@@ -1303,30 +1318,30 @@ elif menu == "📦 Estoque":
                 # Tabela interativa de estoque
                 st.subheader("📋 Ajuste de Estoque")
                 
-                for produto in produtos:
-                    status_estoque = "✅" if produto[6] >= 10 else "⚠️" if produto[6] >= 5 else "❌"
+                for produto in produtos_dict:
+                    status_estoque = "✅" if produto['estoque'] >= 10 else "⚠️" if produto['estoque'] >= 5 else "❌"
                     
-                    with st.expander(f"{status_estoque} {produto[1]} - {produto[3]} - {produto[4]} (Estoque: {produto[6]})"):
+                    with st.expander(f"{status_estoque} {produto['nome']} - {produto['tamanho']} - {produto['cor']} (Estoque: {produto['estoque']})"):
                         col1, col2, col3 = st.columns([2, 1, 1])
                         
                         with col1:
-                            st.write(f"**Categoria:** {produto[2]}")
-                            st.write(f"**Preço:** R$ {produto[5]:.2f}")
-                            if produto[7]:
-                                st.write(f"**Descrição:** {produto[7]}")
+                            st.write(f"**Categoria:** {produto['categoria']}")
+                            st.write(f"**Preço:** R$ {produto['preco']:.2f}")
+                            if produto['descricao']:
+                                st.write(f"**Descrição:** {produto['descricao']}")
                         
                         with col2:
                             nova_quantidade = st.number_input(
                                 "Nova quantidade",
                                 min_value=0,
-                                value=produto[6],
-                                key=f"estoque_{produto[0]}_{idx}"
+                                value=produto['estoque'],
+                                key=f"estoque_{produto['id']}_{idx}"
                             )
                         
                         with col3:
-                            if st.button("💾 Atualizar", key=f"btn_{produto[0]}_{idx}"):
-                                if nova_quantidade != produto[6]:
-                                    sucesso, msg = atualizar_estoque(produto[0], nova_quantidade)
+                            if st.button("💾 Atualizar", key=f"btn_{produto['id']}_{idx}"):
+                                if nova_quantidade != produto['estoque']:
+                                    sucesso, msg = atualizar_estoque(produto['id'], nova_quantidade)
                                     if sucesso:
                                         st.success(msg)
                                         st.rerun()
@@ -1336,20 +1351,20 @@ elif menu == "📦 Estoque":
                                     st.info("Quantidade não foi alterada")
                 
                 # Alertas de estoque baixo
-                produtos_alerta = [p for p in produtos if p[6] < 5]
+                produtos_alerta = [p for p in produtos_dict if p['estoque'] < 5]
                 if produtos_alerta:
                     st.subheader("🚨 Alertas de Estoque Baixo")
                     for produto in produtos_alerta:
-                        status = "⚠️" if produto[6] > 0 else "❌"
-                        st.warning(f"{status} **{produto[1]} - {produto[3]} - {produto[4]}**: Apenas {produto[6]} unidades em estoque")
+                        status = "⚠️" if produto['estoque'] > 0 else "❌"
+                        st.warning(f"{status} **{produto['nome']} - {produto['tamanho']} - {produto['cor']}**: Apenas {produto['estoque']} unidades em estoque")
             
             else:
-                st.info(f"📭 Nenhum produto cadastrado para {escola[1]}")
+                st.info(f"📭 Nenhum produto cadastrado para {escola['nome']}")
 
 elif menu == "📦 Pedidos":
-    escolas = listar_escolas_cached()
+    escolas_dict = listar_escolas_cached()
     
-    if not escolas:
+    if not escolas_dict:
         st.error("❌ Nenhuma escola cadastrada.")
         st.stop()
     
@@ -1359,23 +1374,23 @@ elif menu == "📦 Pedidos":
         st.header("🆕 Criar Novo Pedido")
         
         # Passo 1: Selecionar Escola
-        escola_nome = st.selectbox("🏫 Escola:", [e[1] for e in escolas], key="nova_escola_pedido")
-        escola_id = next(e[0] for e in escolas if e[1] == escola_nome)
+        escola_nome = st.selectbox("🏫 Escola:", [e['nome'] for e in escolas_dict], key="nova_escola_pedido")
+        escola_id = next(e['id'] for e in escolas_dict if e['nome'] == escola_nome)
         
         # Passo 2: Selecionar Cliente
-        clientes = listar_clientes_cached()
-        if not clientes:
+        clientes_dict = listar_clientes_cached()
+        if not clientes_dict:
             st.error("❌ Nenhum cliente cadastrado.")
         else:
-            cliente_opcoes = [f"{c[1]} (ID: {c[0]})" for c in clientes]
+            cliente_opcoes = [f"{c['nome']} (ID: {c['id']})" for c in clientes_dict]
             cliente_selecionado = st.selectbox("👤 Cliente:", cliente_opcoes)
             cliente_id = int(cliente_selecionado.split("(ID: ")[1].replace(")", ""))
             
             # Passo 3: Adicionar Itens
             st.subheader("🛒 Itens do Pedido")
-            produtos = listar_produtos_por_escola_cached(escola_id)
+            produtos_dict = listar_produtos_por_escola_cached(escola_id)
             
-            if not produtos:
+            if not produtos_dict:
                 st.error(f"❌ Nenhum produto cadastrado para {escola_nome}")
             else:
                 # Interface simplificada para adicionar itens
@@ -1384,22 +1399,22 @@ elif menu == "📦 Pedidos":
                 
                 col1, col2, col3, col4 = st.columns([3,1,1,1])
                 with col1:
-                    produto_opcoes = [f"{p[1]} | T: {p[3]} | C: {p[4]} | Est: {p[6]} | R$ {p[5]:.2f}" for p in produtos]
+                    produto_opcoes = [f"{p['nome']} | T: {p['tamanho']} | C: {p['cor']} | Est: {p['estoque']} | R$ {p['preco']:.2f}" for p in produtos_dict]
                     produto_sel = st.selectbox("Produto:", produto_opcoes)
                 with col2:
                     qtd = st.number_input("Qtd:", min_value=1, value=1)
                 with col3:
-                    preco_unit = next(p[5] for p in produtos if f"{p[1]} | T: {p[3]} | C: {p[4]} | Est: {p[6]} | R$ {p[5]:.2f}" == produto_sel)
+                    preco_unit = next(p['preco'] for p in produtos_dict if f"{p['nome']} | T: {p['tamanho']} | C: {p['cor']} | Est: {p['estoque']} | R$ {p['preco']:.2f}" == produto_sel)
                     st.write(f"R$ {preco_unit:.2f}")
                 with col4:
                     if st.button("➕ Add", use_container_width=True):
-                        produto_id = next(p[0] for p in produtos if f"{p[1]} | T: {p[3]} | C: {p[4]} | Est: {p[6]} | R$ {p[5]:.2f}" == produto_sel)
+                        produto_id = next(p['id'] for p in produtos_dict if f"{p['nome']} | T: {p['tamanho']} | C: {p['cor']} | Est: {p['estoque']} | R$ {p['preco']:.2f}" == produto_sel)
                         
                         item = {
                             'produto_id': produto_id,
-                            'nome': next(p[1] for p in produtos if p[0] == produto_id),
-                            'tamanho': next(p[3] for p in produtos if p[0] == produto_id),
-                            'cor': next(p[4] for p in produtos if p[0] == produto_id),
+                            'nome': next(p['nome'] for p in produtos_dict if p['id'] == produto_id),
+                            'tamanho': next(p['tamanho'] for p in produtos_dict if p['id'] == produto_id),
+                            'cor': next(p['cor'] for p in produtos_dict if p['id'] == produto_id),
                             'quantidade': qtd,
                             'preco_unitario': preco_unit,
                             'subtotal': preco_unit * qtd
@@ -1461,11 +1476,11 @@ elif menu == "📦 Pedidos":
     
     with tab2:
         st.header("📋 Pedidos em Andamento")
-        pedidos = listar_pedidos_por_escola_cached()
+        pedidos_dict = listar_pedidos_por_escola_cached()
         
-        if pedidos:
+        if pedidos_dict:
             # Filtrar apenas pedidos não entregues e não cancelados
-            pedidos_em_andamento = [p for p in pedidos if p[3] not in ['Entregue', 'Cancelado']]
+            pedidos_em_andamento = [p for p in pedidos_dict if p['status'] not in ['Entregue', 'Cancelado']]
             
             if pedidos_em_andamento:
                 for pedido in pedidos_em_andamento:
@@ -1473,23 +1488,23 @@ elif menu == "📦 Pedidos":
                         'Pendente': '🟡',
                         'Em produção': '🟠', 
                         'Pronto para entrega': '🔵'
-                    }.get(pedido[3], '⚪')
+                    }.get(pedido['status'], '⚪')
                     
-                    with st.expander(f"{status_icon} Pedido #{pedido[0]} - {pedido[11]} - {pedido[12]} - R$ {float(pedido[9]):.2f} - {pedido[3]}"):
+                    with st.expander(f"{status_icon} Pedido #{pedido['id']} - {pedido['cliente_nome']} - {pedido['escola_nome']} - R$ {float(pedido['valor_total']):.2f} - {pedido['status']}"):
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write(f"**Cliente:** {pedido[11]}")
-                            st.write(f"**Escola:** {pedido[12]}")
-                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido[4])}")
-                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido[5])}")
+                            st.write(f"**Cliente:** {pedido['cliente_nome']}")
+                            st.write(f"**Escola:** {pedido['escola_nome']}")
+                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido['data_pedido'])}")
+                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido['data_entrega_prevista'])}")
                         
                         with col2:
-                            st.write(f"**Forma de Pagamento:** {pedido[7]}")
-                            st.write(f"**Quantidade Total:** {pedido[8]}")
-                            st.write(f"**Valor Total:** R$ {float(pedido[9]):.2f}")
-                            if pedido[10]:
-                                st.write(f"**Observações:** {pedido[10]}")
+                            st.write(f"**Forma de Pagamento:** {pedido['forma_pagamento']}")
+                            st.write(f"**Quantidade Total:** {pedido['quantidade_total']}")
+                            st.write(f"**Valor Total:** R$ {float(pedido['valor_total']):.2f}")
+                            if pedido['observacoes']:
+                                st.write(f"**Observações:** {pedido['observacoes']}")
                         
                         # Alterar status do pedido
                         st.subheader("🔄 Alterar Status do Pedido")
@@ -1498,22 +1513,22 @@ elif menu == "📦 Pedidos":
                             novo_status = st.selectbox(
                                 "Novo status:",
                                 ["Pendente", "Em produção", "Pronto para entrega", "Entregue", "Cancelado"],
-                                key=f"status_{pedido[0]}"
+                                key=f"status_{pedido['id']}"
                             )
                         with col2:
-                            if st.button("🔄 Atualizar", key=f"upd_{pedido[0]}"):
-                                if novo_status != pedido[3]:
-                                    sucesso, msg = atualizar_status_pedido(pedido[0], novo_status)
+                            if st.button("🔄 Atualizar", key=f"upd_{pedido['id']}"):
+                                if novo_status != pedido['status']:
+                                    sucesso, msg = atualizar_status_pedido(pedido['id'], novo_status)
                                     if sucesso:
                                         st.success(msg)
                                         st.rerun()
                                     else:
                                         st.error(msg)
                         with col3:
-                            if st.button("🗑️ Excluir Pedido", key=f"del_{pedido[0]}"):
+                            if st.button("🗑️ Excluir Pedido", key=f"del_{pedido['id']}"):
                                 st.warning("⚠️ Esta ação não pode ser desfeita!")
-                                if st.button("✅ Confirmar Exclusão", key=f"conf_del_{pedido[0]}"):
-                                    sucesso, msg = excluir_pedido(pedido[0])
+                                if st.button("✅ Confirmar Exclusão", key=f"conf_del_{pedido['id']}"):
+                                    sucesso, msg = excluir_pedido(pedido['id'])
                                     if sucesso:
                                         st.success(msg)
                                         st.rerun()
@@ -1526,30 +1541,30 @@ elif menu == "📦 Pedidos":
     
     with tab3:
         st.header("✅ Pedidos Entregues")
-        pedidos = listar_pedidos_por_escola_cached()
+        pedidos_dict = listar_pedidos_por_escola_cached()
         
-        if pedidos:
+        if pedidos_dict:
             # Filtrar apenas pedidos entregues
-            pedidos_entregues = [p for p in pedidos if p[3] == 'Entregue']
+            pedidos_entregues = [p for p in pedidos_dict if p['status'] == 'Entregue']
             
             if pedidos_entregues:
                 for pedido in pedidos_entregues:
-                    with st.expander(f"✅ Pedido #{pedido[0]} - {pedido[11]} - {pedido[12]} - R$ {float(pedido[9]):.2f}"):
+                    with st.expander(f"✅ Pedido #{pedido['id']} - {pedido['cliente_nome']} - {pedido['escola_nome']} - R$ {float(pedido['valor_total']):.2f}"):
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write(f"**Cliente:** {pedido[11]}")
-                            st.write(f"**Escola:** {pedido[12]}")
-                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido[4])}")
-                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido[5])}")
-                            st.write(f"**Entregue em:** {formatar_data_brasil(pedido[6])}")
+                            st.write(f"**Cliente:** {pedido['cliente_nome']}")
+                            st.write(f"**Escola:** {pedido['escola_nome']}")
+                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido['data_pedido'])}")
+                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido['data_entrega_prevista'])}")
+                            st.write(f"**Entregue em:** {formatar_data_brasil(pedido['data_entrega_real'])}")
                         
                         with col2:
-                            st.write(f"**Forma de Pagamento:** {pedido[7]}")
-                            st.write(f"**Quantidade Total:** {pedido[8]}")
-                            st.write(f"**Valor Total:** R$ {float(pedido[9]):.2f}")
-                            if pedido[10]:
-                                st.write(f"**Observações:** {pedido[10]}")
+                            st.write(f"**Forma de Pagamento:** {pedido['forma_pagamento']}")
+                            st.write(f"**Quantidade Total:** {pedido['quantidade_total']}")
+                            st.write(f"**Valor Total:** R$ {float(pedido['valor_total']):.2f}")
+                            if pedido['observacoes']:
+                                st.write(f"**Observações:** {pedido['observacoes']}")
             else:
                 st.info("✅ Nenhum pedido entregue")
         else:
@@ -1557,33 +1572,33 @@ elif menu == "📦 Pedidos":
     
     with tab4:
         st.header("❌ Pedidos Cancelados")
-        pedidos = listar_pedidos_por_escola_cached()
+        pedidos_dict = listar_pedidos_por_escola_cached()
         
-        if pedidos:
+        if pedidos_dict:
             # Filtrar apenas pedidos cancelados
-            pedidos_cancelados = [p for p in pedidos if p[3] == 'Cancelado']
+            pedidos_cancelados = [p for p in pedidos_dict if p['status'] == 'Cancelado']
             
             if pedidos_cancelados:
                 for pedido in pedidos_cancelados:
-                    with st.expander(f"❌ Pedido #{pedido[0]} - {pedido[11]} - {pedido[12]} - R$ {float(pedido[9]):.2f}"):
+                    with st.expander(f"❌ Pedido #{pedido['id']} - {pedido['cliente_nome']} - {pedido['escola_nome']} - R$ {float(pedido['valor_total']):.2f}"):
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            st.write(f"**Cliente:** {pedido[11]}")
-                            st.write(f"**Escola:** {pedido[12]}")
-                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido[4])}")
-                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido[5])}")
+                            st.write(f"**Cliente:** {pedido['cliente_nome']}")
+                            st.write(f"**Escola:** {pedido['escola_nome']}")
+                            st.write(f"**Data do Pedido:** {formatar_data_brasil(pedido['data_pedido'])}")
+                            st.write(f"**Entrega Prevista:** {formatar_data_brasil(pedido['data_entrega_prevista'])}")
                         
                         with col2:
-                            st.write(f"**Forma de Pagamento:** {pedido[7]}")
-                            st.write(f"**Quantidade Total:** {pedido[8]}")
-                            st.write(f"**Valor Total:** R$ {float(pedido[9]):.2f}")
-                            if pedido[10]:
-                                st.write(f"**Observações:** {pedido[10]}")
+                            st.write(f"**Forma de Pagamento:** {pedido['forma_pagamento']}")
+                            st.write(f"**Quantidade Total:** {pedido['quantidade_total']}")
+                            st.write(f"**Valor Total:** R$ {float(pedido['valor_total']):.2f}")
+                            if pedido['observacoes']:
+                                st.write(f"**Observações:** {pedido['observacoes']}")
                         
                         # Opção para reativar pedido cancelado
-                        if st.button("🔄 Reativar Pedido", key=f"reativar_{pedido[0]}"):
-                            sucesso, msg = atualizar_status_pedido(pedido[0], "Pendente")
+                        if st.button("🔄 Reativar Pedido", key=f"reativar_{pedido['id']}"):
+                            sucesso, msg = atualizar_status_pedido(pedido['id'], "Pendente")
                             if sucesso:
                                 st.success(msg)
                                 st.rerun()
@@ -1595,7 +1610,7 @@ elif menu == "📦 Pedidos":
             st.info("📦 Nenhum pedido realizado")
 
 elif menu == "📈 Relatórios":
-    escolas = listar_escolas_cached()
+    escolas_dict = listar_escolas_cached()
     
     tab1, tab2, tab3 = st.tabs(["📊 Vendas por Escola", "📦 Produtos Mais Vendidos", "👥 Análise Completa"])
     
@@ -1604,14 +1619,14 @@ elif menu == "📈 Relatórios":
         
         escola_relatorio = st.selectbox(
             "Selecione a escola:",
-            ["Todas as escolas"] + [e[1] for e in escolas],
+            ["Todas as escolas"] + [e['nome'] for e in escolas_dict],
             key="relatorio_escola"
         )
         
         if escola_relatorio == "Todas as escolas":
             relatorio_vendas = gerar_relatorio_vendas_por_escola()
         else:
-            escola_id = next(e[0] for e in escolas if e[1] == escola_relatorio)
+            escola_id = next(e['id'] for e in escolas_dict if e['nome'] == escola_relatorio)
             relatorio_vendas = gerar_relatorio_vendas_por_escola(escola_id)
         
         if not relatorio_vendas.empty:
@@ -1642,14 +1657,14 @@ elif menu == "📈 Relatórios":
         
         escola_produtos = st.selectbox(
             "Selecione a escola:",
-            ["Todas as escolas"] + [e[1] for e in escolas],
+            ["Todas as escolas"] + [e['nome'] for e in escolas_dict],
             key="produtos_relatorio"
         )
         
         if escola_produtos == "Todas as escolas":
             relatorio_produtos = gerar_relatorio_produtos_por_escola()
         else:
-            escola_id = next(e[0] for e in escolas if e[1] == escola_produtos)
+            escola_id = next(e['id'] for e in escolas_dict if e['nome'] == escola_produtos)
             relatorio_produtos = gerar_relatorio_produtos_por_escola(escola_id)
         
         if not relatorio_produtos.empty:
@@ -1674,34 +1689,34 @@ elif menu == "📈 Relatórios":
         
         with col1:
             st.subheader("🏫 Escolas")
-            escolas_count = len(escolas)
+            escolas_count = len(escolas_dict)
             st.metric("Total de Escolas", escolas_count)
             
         with col2:
             st.subheader("👥 Clientes")
-            clientes = listar_clientes_cached()
-            st.metric("Total de Clientes", len(clientes))
+            clientes_dict = listar_clientes_cached()
+            st.metric("Total de Clientes", len(clientes_dict))
             
         with col3:
             st.subheader("👕 Produtos")
             total_produtos = 0
-            for escola in escolas:
-                produtos = listar_produtos_por_escola_cached(escola[0])
+            for escola in escolas_dict:
+                produtos = listar_produtos_por_escola_cached(escola['id'])
                 total_produtos += len(produtos)
             st.metric("Total de Produtos", total_produtos)
         
         # Resumo por escola
         st.subheader("📋 Resumo por Escola")
         resumo_data = []
-        for escola in escolas:
-            produtos_escola = listar_produtos_por_escola_cached(escola[0])
-            pedidos_escola = listar_pedidos_por_escola_cached(escola[0])
+        for escola in escolas_dict:
+            produtos_escola = listar_produtos_por_escola_cached(escola['id'])
+            pedidos_escola = listar_pedidos_por_escola_cached(escola['id'])
             # Filtrar apenas pedidos não cancelados para as vendas
-            pedidos_nao_cancelados = [p for p in pedidos_escola if p[3] != 'Cancelado']
-            total_vendas = sum(float(p[9]) for p in pedidos_nao_cancelados)
+            pedidos_nao_cancelados = [p for p in pedidos_escola if p['status'] != 'Cancelado']
+            total_vendas = sum(float(p['valor_total']) for p in pedidos_nao_cancelados)
             
             resumo_data.append({
-                'Escola': escola[1],
+                'Escola': escola['nome'],
                 'Produtos': len(produtos_escola),
                 'Pedidos': len(pedidos_nao_cancelados),
                 'Vendas (R$)': total_vendas
@@ -1745,9 +1760,27 @@ def monitor_performance():
 # Chamar monitoramento
 monitor_performance()
 
+# =========================================
+# 🚀 HEALTH CHECK AUTOMÁTICO (RENDER)
+# =========================================
+
+if IS_RENDER:
+    @st.cache_resource(ttl=600)
+    def keep_alive():
+        """Mantém o serviço ativo no Render"""
+        try:
+            import requests
+            # Faz ping na própria aplicação a cada 10 minutos
+            requests.get(f"https://{os.environ.get('RENDER_EXTERNAL_URL', '')}", timeout=10)
+        except:
+            pass
+    
+    # Executar health check
+    keep_alive()
+
 # Rodapé
 st.sidebar.markdown("---")
-st.sidebar.info("👕 Sistema de Fardamentos v12.0\n\n🏫 **Organizado por Escola**\n🗄️ Banco SQLite\n⚡ **Performance Otimizada**\n🌐 **Pronto para Deploy**")
+st.sidebar.info("👕 Sistema de Fardamentos v13.0\n\n🏫 **Organizado por Escola**\n🗄️ Banco SQLite\n⚡ **Performance Otimizada**\n🌐 **Pronto para Deploy**\n🔧 **Serialização Corrigida**")
 
 # Botão para recarregar dados
 if st.sidebar.button("🔄 Recarregar Dados"):
