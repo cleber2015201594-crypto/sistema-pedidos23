@@ -8,68 +8,48 @@ import psycopg2
 import urllib.parse
 
 # =========================================
-# 📱 CONFIGURAÇÃO MOBILE-FIRST
+# 🎨 CONFIGURAÇÃO DO APP
 # =========================================
 
 st.set_page_config(
-    page_title="FashionManager Mobile",
+    page_title="FashionManager Pro",
     page_icon="👕",
-    layout="wide",
-    initial_sidebar_state="collapsed"  # Sidebar recolhida no mobile
+    layout="wide"
 )
 
-# CSS para mobile
+# CSS personalizado
 st.markdown("""
 <style>
-    @media (max-width: 768px) {
-        .main-header {
-            font-size: 2rem !important;
-        }
-        .section-header {
-            font-size: 1.4rem !important;
-        }
-        .metric-card {
-            padding: 1rem !important;
-            margin: 0.5rem 0 !important;
-        }
-        .metric-value {
-            font-size: 1.8rem !important;
-        }
-    }
-    
     .main-header {
         font-size: 2.5rem;
         color: #6A0DAD;
         text-align: center;
         margin-bottom: 1rem;
+        font-weight: bold;
     }
-    .mobile-button {
-        width: 100%;
-        margin: 0.5rem 0;
-        padding: 1rem;
-        font-size: 1.1rem;
-    }
-    .mobile-card {
-        background: white;
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         padding: 1rem;
         border-radius: 10px;
-        margin: 0.5rem 0;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        color: white;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # =========================================
-# 🗃️ BANCO DE DADOS - MULTIPLAS OPÇÕES
+# 🗃️ CONEXÃO COM BANCO
 # =========================================
 
 def get_connection():
-    """Conexão flexível com múltiplos bancos"""
+    """Conexão com PostgreSQL do Render"""
     try:
-        # 1. Tentar PostgreSQL (Render/Railway)
         database_url = os.environ.get('DATABASE_URL')
+        
         if database_url:
+            # Parse da URL do Render
             parsed_url = urllib.parse.urlparse(database_url)
+            
             conn = psycopg2.connect(
                 database=parsed_url.path[1:],
                 user=parsed_url.username,
@@ -79,141 +59,214 @@ def get_connection():
                 sslmode='require'
             )
             return conn
-        
-        # 2. Tentar SQLite (local/fallback)
-        import sqlite3
-        conn = sqlite3.connect('fardamentos_mobile.db', check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-        
+        else:
+            # Para desenvolvimento local
+            import sqlite3
+            conn = sqlite3.connect('local.db', check_same_thread=False)
+            return conn
+            
     except Exception as e:
         st.error(f"❌ Erro de conexão: {str(e)}")
         return None
 
 def init_db():
-    """Inicialização do banco"""
+    """Inicializa o banco de dados"""
     conn = get_connection()
     if not conn:
         return False
     
     try:
-        if hasattr(conn, 'cursor'):  # PostgreSQL
-            cur = conn.cursor()
-            # Suas tabelas aqui (mesmo código anterior)
-            # ...
-            conn.commit()
+        cur = conn.cursor()
+        
+        # Tabela de usuários
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS usuarios (
+                id SERIAL PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                nome TEXT,
+                tipo TEXT DEFAULT 'vendedor'
+            )
+        ''')
+        
+        # Tabela de produtos
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS produtos (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL,
+                categoria TEXT,
+                tamanho TEXT,
+                cor TEXT,
+                preco DECIMAL(10,2),
+                estoque INTEGER DEFAULT 0,
+                data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Tabela de clientes
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS clientes (
+                id SERIAL PRIMARY KEY,
+                nome TEXT NOT NULL,
+                telefone TEXT,
+                email TEXT,
+                data_cadastro DATE DEFAULT CURRENT_DATE
+            )
+        ''')
+        
+        # Inserir usuário admin padrão
+        cur.execute('''
+            INSERT INTO usuarios (username, password, nome, tipo) 
+            VALUES ('admin', 'admin123', 'Administrador', 'admin')
+            ON CONFLICT (username) DO NOTHING
+        ''')
+        
+        conn.commit()
         return True
+        
     except Exception as e:
-        st.error(f"❌ Erro ao inicializar banco: {str(e)}")
+        st.error(f"❌ Erro ao criar tabelas: {str(e)}")
         return False
     finally:
-        if conn:
-            conn.close()
+        conn.close()
 
 # =========================================
-# 📱 INTERFACE MOBILE OTIMIZADA
+# 🔐 SISTEMA DE LOGIN
 # =========================================
 
-def mobile_login():
-    """Tela de login mobile"""
-    st.markdown("<h1 class='main-header'>👕 FashionManager</h1>", unsafe_allow_html=True)
+def check_login(username, password):
+    """Verifica credenciais"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
     
-    with st.container():
-        st.markdown("<div class='mobile-card'>", unsafe_allow_html=True)
-        username = st.text_input("👤 Usuário", placeholder="Seu usuário")
-        password = st.text_input("🔒 Senha", type='password', placeholder="Sua senha")
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT password, nome, tipo FROM usuarios WHERE username = %s', (username,))
+        result = cur.fetchone()
         
-        if st.button("🚀 Entrar", use_container_width=True, key="login_btn"):
-            if username and password:
-                # Sua lógica de login aqui
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.rerun()
-            else:
-                st.error("Preencha todos os campos")
-        
-        st.markdown("---")
-        st.markdown("**Usuários de teste:**")
-        st.write("👤 admin / 🔒 admin123")
-        st.write("👤 vendedor / 🔒 venda123")
-        st.markdown("</div>", unsafe_allow_html=True)
+        if result and result[0] == password:  # Senha em texto simples para simplificar
+            return True, result[1], result[2]
+        else:
+            return False, "Credenciais inválidas", None
+            
+    except Exception as e:
+        return False, f"Erro: {str(e)}", None
+    finally:
+        conn.close()
 
-def mobile_dashboard():
-    """Dashboard mobile"""
-    st.markdown("<h1 class='main-header'>📊 Dashboard</h1>", unsafe_allow_html=True)
+def login_page():
+    """Página de login"""
+    st.markdown("<h1 class='main-header'>👕 FashionManager Pro</h1>", unsafe_allow_html=True)
     
-    # Métricas em cards
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("<div class='mobile-card'>", unsafe_allow_html=True)
-        st.metric("👕 Produtos", "45")
-        st.markdown("</div>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown("<div class='mobile-card'>", unsafe_allow_html=True)
-        st.metric("👥 Clientes", "23")
-        st.markdown("</div>", unsafe_allow_html=True)
-    
-    # Menu de ações rápidas
-    st.markdown("### 🚀 Ações Rápidas")
-    
-    if st.button("🛍️ Nova Venda", use_container_width=True, key="venda_btn"):
-        st.session_state.current_page = "vendas"
-        st.rerun()
-    
-    if st.button("👕 Cadastrar Produto", use_container_width=True, key="produto_btn"):
-        st.session_state.current_page = "produtos"
-        st.rerun()
-    
-    if st.button("👥 Cadastrar Cliente", use_container_width=True, key="cliente_btn"):
-        st.session_state.current_page = "clientes"
-        st.rerun()
-
-def mobile_produtos():
-    """Tela de produtos mobile"""
-    st.markdown("<h1 class='main-header'>👕 Produtos</h1>", unsafe_allow_html=True)
-    
-    # Botão voltar
-    if st.button("⬅️ Voltar", key="back_produtos"):
-        st.session_state.current_page = "dashboard"
-        st.rerun()
-    
-    # Formulário simplificado
-    with st.form("novo_produto_mobile"):
-        nome = st.text_input("Nome do produto")
-        categoria = st.selectbox("Categoria", ["Camisetas", "Calças", "Agasalhos"])
-        tamanho = st.selectbox("Tamanho", ["P", "M", "G", "GG"])
+        st.info("🔐 **Faça login para continuar**")
         
-        if st.form_submit_button("✅ Cadastrar Produto", use_container_width=True):
-            if nome:
-                st.success("Produto cadastrado!")
-            else:
-                st.error("Nome é obrigatório")
-
-def mobile_clientes():
-    """Tela de clientes mobile"""
-    st.markdown("<h1 class='main-header'>👥 Clientes</h1>", unsafe_allow_html=True)
-    
-    if st.button("⬅️ Voltar", key="back_clientes"):
-        st.session_state.current_page = "dashboard"
-        st.rerun()
-    
-    with st.form("novo_cliente_mobile"):
-        nome = st.text_input("Nome completo")
-        telefone = st.text_input("Telefone")
-        email = st.text_input("Email")
+        username = st.text_input("👤 Usuário")
+        password = st.text_input("🔒 Senha", type='password')
         
-        if st.form_submit_button("✅ Cadastrar Cliente", use_container_width=True):
-            if nome:
-                st.success("Cliente cadastrado!")
+        if st.button("🚀 Entrar", use_container_width=True):
+            if username and password:
+                success, message, user_type = check_login(username, password)
+                if success:
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
+                    st.session_state.user_name = message
+                    st.session_state.user_type = user_type
+                    st.success(f"✅ Bem-vindo, {message}!")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
             else:
-                st.error("Nome é obrigatório")
+                st.error("⚠️ Preencha todos os campos")
+        
+        st.markdown("---")
+        st.markdown("**Usuário de teste:**")
+        st.markdown("👤 **admin** | 🔒 **admin123**")
 
 # =========================================
-# 🎯 APLICAÇÃO PRINCIPAL MOBILE
+# 📊 FUNÇÕES DO SISTEMA
 # =========================================
 
-# Inicialização
+def adicionar_produto(nome, categoria, tamanho, cor, preco, estoque):
+    """Adiciona novo produto"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO produtos (nome, categoria, tamanho, cor, preco, estoque)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        ''', (nome, categoria, tamanho, cor, preco, estoque))
+        conn.commit()
+        return True, "✅ Produto cadastrado com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        conn.close()
+
+def listar_produtos():
+    """Lista todos os produtos"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM produtos ORDER BY nome')
+        return cur.fetchall()
+    except Exception as e:
+        st.error(f"❌ Erro ao listar produtos: {e}")
+        return []
+    finally:
+        conn.close()
+
+def adicionar_cliente(nome, telefone, email):
+    """Adiciona novo cliente"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO clientes (nome, telefone, email)
+            VALUES (%s, %s, %s)
+        ''', (nome, telefone, email))
+        conn.commit()
+        return True, "✅ Cliente cadastrado com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        conn.close()
+
+def listar_clientes():
+    """Lista todos os clientes"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM clientes ORDER BY nome')
+        return cur.fetchall()
+    except Exception as e:
+        st.error(f"❌ Erro ao listar clientes: {e}")
+        return []
+    finally:
+        conn.close()
+
+# =========================================
+# 🎯 INICIALIZAÇÃO
+# =========================================
+
+# Inicializar banco
 if 'db_initialized' not in st.session_state:
     if init_db():
         st.session_state.db_initialized = True
@@ -221,41 +274,243 @@ if 'db_initialized' not in st.session_state:
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = "dashboard"
-
-# Navegação
 if not st.session_state.logged_in:
-    mobile_login()
-else:
-    # Menu mobile no topo
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        if st.button("📊", use_container_width=True):
-            st.session_state.current_page = "dashboard"
-    with col2:
-        if st.button("🛍️", use_container_width=True):
-            st.session_state.current_page = "vendas"
-    with col3:
-        if st.button("👕", use_container_width=True):
-            st.session_state.current_page = "produtos"
-    with col4:
-        if st.button("👥", use_container_width=True):
-            st.session_state.current_page = "clientes"
-    
-    # Conteúdo das páginas
-    if st.session_state.current_page == "dashboard":
-        mobile_dashboard()
-    elif st.session_state.current_page == "produtos":
-        mobile_produtos()
-    elif st.session_state.current_page == "clientes":
-        mobile_clientes()
-    elif st.session_state.current_page == "vendas":
-        st.info("Módulo de vendas em desenvolvimento")
-    
-    # Logout no final
+    login_page()
+    st.stop()
+
+# =========================================
+# 🎨 MENU PRINCIPAL
+# =========================================
+
+with st.sidebar:
+    st.markdown(f"**👤 {st.session_state.user_name}**")
+    st.markdown(f"**🎯 {st.session_state.user_type}**")
     st.markdown("---")
-    if st.button("🚪 Sair", use_container_width=True):
+    
+    menu = st.radio("Navegação", [
+        "📊 Dashboard",
+        "👕 Produtos", 
+        "👥 Clientes",
+        "📦 Estoque"
+    ])
+    
+    st.markdown("---")
+    if st.button("🚪 Sair"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+
+# =========================================
+# 📊 DASHBOARD
+# =========================================
+
+if menu == "📊 Dashboard":
+    st.markdown("<h1 class='main-header'>📊 Dashboard</h1>", unsafe_allow_html=True)
+    
+    # Métricas
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        produtos_count = len(listar_produtos())
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div style='font-size: 2rem; font-weight: bold;'>{produtos_count}</div>
+            <div>👕 Produtos</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        clientes_count = len(listar_clientes())
+        st.markdown(f"""
+        <div class='metric-card' style='background: linear-gradient(135deg, #00b09b 0%, #96c93d 100%);'>
+            <div style='font-size: 2rem; font-weight: bold;'>{clientes_count}</div>
+            <div>👥 Clientes</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        produtos = listar_produtos()
+        estoque_baixo = len([p for p in produtos if p[6] < 5])
+        st.markdown(f"""
+        <div class='metric-card' style='background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);'>
+            <div style='font-size: 2rem; font-weight: bold;'>{estoque_baixo}</div>
+            <div>⚠️ Alertas</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Gráfico de produtos por categoria
+    st.subheader("📈 Produtos por Categoria")
+    produtos = listar_produtos()
+    if produtos:
+        categorias = {}
+        for produto in produtos:
+            cat = produto[2] or "Sem categoria"
+            categorias[cat] = categorias.get(cat, 0) + 1
+        
+        if categorias:
+            df = pd.DataFrame(list(categorias.items()), columns=['Categoria', 'Quantidade'])
+            fig = px.pie(df, values='Quantidade', names='Categoria', title='Distribuição por Categoria')
+            st.plotly_chart(fig, use_container_width=True)
+
+# =========================================
+# 👕 PRODUTOS
+# =========================================
+
+elif menu == "👕 Produtos":
+    st.markdown("<h1 class='main-header'>👕 Gestão de Produtos</h1>", unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["➕ Cadastrar", "📋 Lista"])
+    
+    with tab1:
+        st.subheader("Cadastrar Novo Produto")
+        
+        with st.form("novo_produto"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nome = st.text_input("Nome do Produto*")
+                categoria = st.selectbox("Categoria*", ["Camisetas", "Calças", "Agasalhos", "Acessórios"])
+                tamanho = st.selectbox("Tamanho*", ["P", "M", "G", "GG", "2", "4", "6", "8", "10", "12"])
+            
+            with col2:
+                cor = st.text_input("Cor*", "Branco")
+                preco = st.number_input("Preço R$*", min_value=0.0, value=29.90)
+                estoque = st.number_input("Estoque*", min_value=0, value=10)
+            
+            if st.form_submit_button("✅ Cadastrar Produto"):
+                if nome and cor:
+                    success, msg = adicionar_produto(nome, categoria, tamanho, cor, preco, estoque)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("❌ Campos obrigatórios: Nome e Cor")
+    
+    with tab2:
+        st.subheader("Produtos Cadastrados")
+        produtos = listar_produtos()
+        
+        if produtos:
+            dados = []
+            for produto in produtos:
+                status = "✅" if produto[6] >= 5 else "⚠️" if produto[6] > 0 else "❌"
+                dados.append({
+                    'ID': produto[0],
+                    'Produto': produto[1],
+                    'Categoria': produto[2],
+                    'Tamanho': produto[3],
+                    'Cor': produto[4],
+                    'Preço': f"R$ {float(produto[5]):.2f}",
+                    'Estoque': f"{status} {produto[6]}",
+                    'Data': produto[7]
+                })
+            
+            st.dataframe(pd.DataFrame(dados), use_container_width=True)
+            st.metric("Total de Produtos", len(produtos))
+        else:
+            st.info("📝 Nenhum produto cadastrado")
+
+# =========================================
+# 👥 CLIENTES
+# =========================================
+
+elif menu == "👥 Clientes":
+    st.markdown("<h1 class='main-header'>👥 Gestão de Clientes</h1>", unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["➕ Cadastrar", "📋 Lista"])
+    
+    with tab1:
+        st.subheader("Cadastrar Novo Cliente")
+        
+        with st.form("novo_cliente"):
+            nome = st.text_input("Nome completo*")
+            telefone = st.text_input("Telefone")
+            email = st.text_input("Email")
+            
+            if st.form_submit_button("✅ Cadastrar Cliente"):
+                if nome:
+                    success, msg = adicionar_cliente(nome, telefone, email)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("❌ Nome é obrigatório!")
+    
+    with tab2:
+        st.subheader("Clientes Cadastrados")
+        clientes = listar_clientes()
+        
+        if clientes:
+            dados = []
+            for cliente in clientes:
+                dados.append({
+                    'ID': cliente[0],
+                    'Nome': cliente[1],
+                    'Telefone': cliente[2] or 'N/A',
+                    'Email': cliente[3] or 'N/A',
+                    'Data Cadastro': cliente[4]
+                })
+            
+            st.dataframe(pd.DataFrame(dados), use_container_width=True)
+            st.metric("Total de Clientes", len(clientes))
+        else:
+            st.info("📝 Nenhum cliente cadastrado")
+
+# =========================================
+# 📦 ESTOQUE
+# =========================================
+
+elif menu == "📦 Estoque":
+    st.markdown("<h1 class='main-header'>📦 Controle de Estoque</h1>", unsafe_allow_html=True)
+    
+    produtos = listar_produtos()
+    
+    if produtos:
+        # Métricas
+        col1, col2, col3 = st.columns(3)
+        total_estoque = sum(p[6] for p in produtos)
+        produtos_baixo = len([p for p in produtos if p[6] < 5])
+        
+        with col1:
+            st.metric("📦 Total Produtos", len(produtos))
+        with col2:
+            st.metric("🔄 Estoque Total", total_estoque)
+        with col3:
+            st.metric("⚠️ Estoque Baixo", produtos_baixo)
+        
+        # Tabela de estoque
+        st.subheader("Situação do Estoque")
+        dados = []
+        for produto in produtos:
+            status = "✅ Suficiente" if produto[6] >= 10 else "⚠️ Atenção" if produto[6] >= 5 else "🔴 Crítico"
+            dados.append({
+                'Produto': produto[1],
+                'Categoria': produto[2],
+                'Tamanho': produto[3],
+                'Cor': produto[4],
+                'Estoque': produto[6],
+                'Status': status
+            })
+        
+        st.dataframe(pd.DataFrame(dados), use_container_width=True)
+        
+        # Alertas
+        produtos_criticos = [p for p in produtos if p[6] < 5]
+        if produtos_criticos:
+            st.warning("🚨 **Produtos com estoque crítico:**")
+            for produto in produtos_criticos:
+                st.error(f"**{produto[1]}** - {produto[3]} - {produto[4]}: apenas **{produto[6]}** unidades")
+    else:
+        st.info("📝 Nenhum produto cadastrado")
+
+# =========================================
+# 🎯 RODAPÉ
+# =========================================
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("👕 **FashionManager Pro**")
+st.sidebar.markdown("v2.0 • Render")
