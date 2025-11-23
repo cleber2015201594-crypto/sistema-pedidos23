@@ -67,6 +67,11 @@ def get_connection():
     except Exception as e:
         st.error(f"❌ Erro de conexão: {str(e)}")
         return None
+
+def get_placeholder():
+    """Retorna o placeholder correto para o banco"""
+    return '%s' if os.environ.get('DATABASE_URL') else '?'
+
 def init_db():
     """Inicializa o banco de dados com tabelas necessárias"""
     conn = get_connection()
@@ -149,12 +154,19 @@ def init_db():
                 )
             ''')
             
-            # Inserir usuário admin padrão
-            cur.execute('''
-                INSERT INTO usuarios (username, password, nome, tipo) 
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (username) DO NOTHING
-            ''', ('admin', 'admin123', 'Administrador', 'admin'))
+            # Inserir usuários padrão
+            usuarios_padrao = [
+                ('admin', 'admin123', 'Administrador Principal', 'admin'),
+                ('vendedor1', 'vendedor123', 'João Vendedor', 'vendedor'),
+                ('vendedor2', 'vendedor123', 'Maria Vendedora', 'vendedor')
+            ]
+            
+            for usuario in usuarios_padrao:
+                cur.execute('''
+                    INSERT INTO usuarios (username, password, nome, tipo) 
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (username) DO NOTHING
+                ''', usuario)
             
             # Inserir escola padrão
             cur.execute('''
@@ -233,11 +245,18 @@ def init_db():
                 )
             ''')
             
-            # Inserir usuário admin padrão
-            cur.execute('''
-                INSERT OR IGNORE INTO usuarios (username, password, nome, tipo) 
-                VALUES (?, ?, ?, ?)
-            ''', ('admin', 'admin123', 'Administrador', 'admin'))
+            # Inserir usuários padrão
+            usuarios_padrao = [
+                ('admin', 'admin123', 'Administrador Principal', 'admin'),
+                ('vendedor1', 'vendedor123', 'João Vendedor', 'vendedor'),
+                ('vendedor2', 'vendedor123', 'Maria Vendedora', 'vendedor')
+            ]
+            
+            for usuario in usuarios_padrao:
+                cur.execute('''
+                    INSERT OR IGNORE INTO usuarios (username, password, nome, tipo) 
+                    VALUES (?, ?, ?, ?)
+                ''', usuario)
             
             # Inserir escola padrão
             cur.execute('''
@@ -263,20 +282,24 @@ def check_login(username, password):
     """Verifica as credenciais do usuário"""
     conn = get_connection()
     if not conn:
-        return False, "Erro de conexão", None
+        return False, "Erro de conexão", None, None
     
     try:
         cur = conn.cursor()
-        cur.execute('SELECT password, nome, tipo FROM usuarios WHERE username = %s', (username,))
+        placeholder = get_placeholder()
+        
+        query = f'SELECT id, password, nome, tipo FROM usuarios WHERE username = {placeholder}'
+        cur.execute(query, (username,))
         result = cur.fetchone()
         
         if result:
-            if result[0] == password:
-                return True, result[1], result[2]
+            user_id, stored_password, nome, tipo = result
+            if stored_password == password:
+                return True, nome, tipo, user_id
         
-        return False, "Credenciais inválidas", None
+        return False, "Credenciais inválidas", None, None
     except Exception as e:
-        return False, f"Erro: {str(e)}", None
+        return False, f"Erro: {str(e)}", None, None
     finally:
         if conn:
             conn.close()
@@ -295,12 +318,13 @@ def login_page():
         
         if st.button("🚀 Entrar", use_container_width=True):
             if username and password:
-                success, message, user_type = check_login(username, password)
+                success, message, user_type, user_id = check_login(username, password)
                 if success:
                     st.session_state.logged_in = True
                     st.session_state.username = username
                     st.session_state.user_name = message
                     st.session_state.user_type = user_type
+                    st.session_state.user_id = user_id
                     st.success(f"✅ Bem-vindo, {message}!")
                     st.rerun()
                 else:
@@ -309,8 +333,94 @@ def login_page():
                 st.error("⚠️ Preencha todos os campos")
         
         st.markdown("---")
-        st.markdown("**👤 Usuário de teste:**")
-        st.markdown("**admin** | **admin123**")
+        st.markdown("**👤 Usuários de teste:**")
+        st.markdown("- **admin** / **admin123** (Administrador)")
+        st.markdown("- **vendedor1** / **vendedor123** (Vendedor)")
+        st.markdown("- **vendedor2** / **vendedor123** (Vendedor)")
+
+# =========================================
+# 👥 FUNÇÕES DE GERENCIAMENTO DE USUÁRIOS
+# =========================================
+
+def listar_usuarios():
+    """Lista todos os usuários"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM usuarios ORDER BY username')
+        return cur.fetchall()
+    except Exception as e:
+        st.error(f"❌ Erro ao listar usuários: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def adicionar_usuario(username, password, nome, tipo):
+    """Adiciona um novo usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        placeholder = get_placeholder()
+        
+        query = f'INSERT INTO usuarios (username, password, nome, tipo) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})'
+        cur.execute(query, (username, password, nome, tipo))
+        conn.commit()
+        return True, "✅ Usuário cadastrado com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def excluir_usuario(usuario_id):
+    """Exclui um usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        placeholder = get_placeholder()
+        
+        query = f'DELETE FROM usuarios WHERE id = {placeholder}'
+        cur.execute(query, (usuario_id,))
+        conn.commit()
+        return True, "✅ Usuário excluído com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def alterar_senha(usuario_id, nova_senha):
+    """Altera a senha de um usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        placeholder = get_placeholder()
+        
+        query = f'UPDATE usuarios SET password = {placeholder} WHERE id = {placeholder}'
+        cur.execute(query, (nova_senha, usuario_id))
+        conn.commit()
+        return True, "✅ Senha alterada com sucesso!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
 
 # =========================================
 # 📊 FUNÇÕES DO SISTEMA - ESCOLAS
@@ -325,21 +435,31 @@ def adicionar_escola(nome, endereco, telefone, email):
     try:
         cur = conn.cursor()
         placeholder = get_placeholder()
-        def get_placeholder():
-    """Retorna o placeholder correto para o banco"""
-    return '%s' if os.environ.get('DATABASE_URL') else '?'
         
-        query = f'''
-            INSERT INTO escolas (nome, endereco, telefone, email) 
-            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})
-        '''
+        query = f'INSERT INTO escolas (nome, endereco, telefone, email) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})'
         cur.execute(query, (nome, endereco, telefone, email))
         conn.commit()
         return True, "✅ Escola cadastrada com sucesso!"
     except Exception as e:
-        if conn:
-            conn.rollback()
+        conn.rollback()
         return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def listar_escolas():
+    """Lista todas as escolas"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT * FROM escolas ORDER BY nome')
+        return cur.fetchall()
+    except Exception as e:
+        st.error(f"❌ Erro ao listar escolas: {e}")
+        return []
     finally:
         if conn:
             conn.close()
@@ -352,7 +472,10 @@ def excluir_escola(escola_id):
     
     try:
         cur = conn.cursor()
-        cur.execute('DELETE FROM escolas WHERE id = %s', (escola_id,))
+        placeholder = get_placeholder()
+        
+        query = f'DELETE FROM escolas WHERE id = {placeholder}'
+        cur.execute(query, (escola_id,))
         conn.commit()
         return True, "✅ Escola excluída com sucesso!"
     except Exception as e:
@@ -374,11 +497,13 @@ def adicionar_produto(nome, categoria, tamanho, cor, preco, estoque, escola_id):
     
     try:
         cur = conn.cursor()
-        cur.execute(
-            '''INSERT INTO produtos (nome, categoria, tamanho, cor, preco, estoque, escola_id) 
-               VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-            (nome, categoria, tamanho, cor, preco, estoque, escola_id)
-        )
+        placeholder = get_placeholder()
+        
+        query = f'''
+            INSERT INTO produtos (nome, categoria, tamanho, cor, preco, estoque, escola_id) 
+            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder})
+        '''
+        cur.execute(query, (nome, categoria, tamanho, cor, preco, estoque, escola_id))
         conn.commit()
         return True, "✅ Produto cadastrado com sucesso!"
     except Exception as e:
@@ -397,7 +522,9 @@ def listar_produtos(escola_id=None):
     try:
         cur = conn.cursor()
         if escola_id:
-            cur.execute('SELECT * FROM produtos WHERE escola_id = %s ORDER BY nome', (escola_id,))
+            placeholder = get_placeholder()
+            query = f'SELECT * FROM produtos WHERE escola_id = {placeholder} ORDER BY nome'
+            cur.execute(query, (escola_id,))
         else:
             cur.execute('SELECT * FROM produtos ORDER BY nome')
         return cur.fetchall()
@@ -416,7 +543,10 @@ def excluir_produto(produto_id):
     
     try:
         cur = conn.cursor()
-        cur.execute('DELETE FROM produtos WHERE id = %s', (produto_id,))
+        placeholder = get_placeholder()
+        
+        query = f'DELETE FROM produtos WHERE id = {placeholder}'
+        cur.execute(query, (produto_id,))
         conn.commit()
         return True, "✅ Produto excluído com sucesso!"
     except Exception as e:
@@ -438,10 +568,10 @@ def adicionar_cliente(nome, telefone, email, escola_id):
     
     try:
         cur = conn.cursor()
-        cur.execute(
-            'INSERT INTO clientes (nome, telefone, email, escola_id) VALUES (%s, %s, %s, %s)',
-            (nome, telefone, email, escola_id)
-        )
+        placeholder = get_placeholder()
+        
+        query = f'INSERT INTO clientes (nome, telefone, email, escola_id) VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})'
+        cur.execute(query, (nome, telefone, email, escola_id))
         conn.commit()
         return True, "✅ Cliente cadastrado com sucesso!"
     except Exception as e:
@@ -460,7 +590,9 @@ def listar_clientes(escola_id=None):
     try:
         cur = conn.cursor()
         if escola_id:
-            cur.execute('SELECT * FROM clientes WHERE escola_id = %s ORDER BY nome', (escola_id,))
+            placeholder = get_placeholder()
+            query = f'SELECT * FROM clientes WHERE escola_id = {placeholder} ORDER BY nome'
+            cur.execute(query, (escola_id,))
         else:
             cur.execute('SELECT * FROM clientes ORDER BY nome')
         return cur.fetchall()
@@ -479,7 +611,10 @@ def excluir_cliente(cliente_id):
     
     try:
         cur = conn.cursor()
-        cur.execute('DELETE FROM clientes WHERE id = %s', (cliente_id,))
+        placeholder = get_placeholder()
+        
+        query = f'DELETE FROM clientes WHERE id = {placeholder}'
+        cur.execute(query, (cliente_id,))
         conn.commit()
         return True, "✅ Cliente excluído com sucesso!"
     except Exception as e:
@@ -501,37 +636,48 @@ def criar_pedido(cliente_id, escola_id, itens):
     
     try:
         cur = conn.cursor()
+        placeholder = get_placeholder()
         
         # Criar o pedido
-        cur.execute(
-            'INSERT INTO pedidos (cliente_id, escola_id, total) VALUES (%s, %s, %s)',
-            (cliente_id, escola_id, 0)
-        )
+        query = f'INSERT INTO pedidos (cliente_id, escola_id, total) VALUES ({placeholder}, {placeholder}, 0)'
+        cur.execute(query, (cliente_id, escola_id))
         
         # Obter ID do pedido criado
-        cur.execute('SELECT LASTVAL()')
+        if os.environ.get('DATABASE_URL'):
+            cur.execute('SELECT LASTVAL()')
+        else:
+            cur.execute('SELECT last_insert_rowid()')
         pedido_id = cur.fetchone()[0]
         
         # Adicionar itens e calcular total
         total_pedido = 0
         for produto_id, quantidade in itens:
             # Buscar preço do produto
-            cur.execute('SELECT preco FROM produtos WHERE id = %s', (produto_id,))
-            preco_unitario = cur.fetchone()[0]
+            query = f'SELECT preco FROM produtos WHERE id = {placeholder}'
+            cur.execute(query, (produto_id,))
+            preco_result = cur.fetchone()
+            
+            if not preco_result:
+                return False, f"❌ Produto com ID {produto_id} não encontrado"
+            
+            preco_unitario = preco_result[0]
             
             # Inserir item do pedido
-            cur.execute(
-                'INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco_unitario) VALUES (%s, %s, %s, %s)',
-                (pedido_id, produto_id, quantidade, preco_unitario)
-            )
+            query = f'''
+                INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco_unitario) 
+                VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder})
+            '''
+            cur.execute(query, (pedido_id, produto_id, quantidade, preco_unitario))
             
             # Atualizar estoque
-            cur.execute('UPDATE produtos SET estoque = estoque - %s WHERE id = %s', (quantidade, produto_id))
+            query = f'UPDATE produtos SET estoque = estoque - {placeholder} WHERE id = {placeholder}'
+            cur.execute(query, (quantidade, produto_id))
             
             total_pedido += preco_unitario * quantidade
         
         # Atualizar total do pedido
-        cur.execute('UPDATE pedidos SET total = %s WHERE id = %s', (total_pedido, pedido_id))
+        query = f'UPDATE pedidos SET total = {placeholder} WHERE id = {placeholder}'
+        cur.execute(query, (total_pedido, pedido_id))
         
         conn.commit()
         return True, f"✅ Pedido #{pedido_id} criado com sucesso! Total: R$ {total_pedido:.2f}"
@@ -551,26 +697,50 @@ def listar_pedidos(escola_id=None):
     try:
         cur = conn.cursor()
         if escola_id:
-            cur.execute('''
+            placeholder = get_placeholder()
+            query = f'''
                 SELECT p.*, c.nome as cliente_nome, e.nome as escola_nome 
                 FROM pedidos p
                 JOIN clientes c ON p.cliente_id = c.id
                 JOIN escolas e ON p.escola_id = e.id
-                WHERE p.escola_id = %s
+                WHERE p.escola_id = {placeholder}
                 ORDER BY p.data_pedido DESC
-            ''', (escola_id,))
+            '''
+            cur.execute(query, (escola_id,))
         else:
-            cur.execute('''
+            query = '''
                 SELECT p.*, c.nome as cliente_nome, e.nome as escola_nome 
                 FROM pedidos p
                 JOIN clientes c ON p.cliente_id = c.id
                 JOIN escolas e ON p.escola_id = e.id
                 ORDER BY p.data_pedido DESC
-            ''')
+            '''
+            cur.execute(query)
         return cur.fetchall()
     except Exception as e:
         st.error(f"❌ Erro ao listar pedidos: {e}")
         return []
+    finally:
+        if conn:
+            conn.close()
+
+def atualizar_status_pedido(pedido_id, status):
+    """Atualiza o status de um pedido"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cur = conn.cursor()
+        placeholder = get_placeholder()
+        
+        query = f'UPDATE pedidos SET status = {placeholder} WHERE id = {placeholder}'
+        cur.execute(query, (status, pedido_id))
+        conn.commit()
+        return True, "✅ Status do pedido atualizado!"
+    except Exception as e:
+        conn.rollback()
+        return False, f"❌ Erro: {str(e)}"
     finally:
         if conn:
             conn.close()
@@ -591,9 +761,9 @@ def gerar_relatorio_vendas():
         dados.append({
             'Pedido': pedido[0],
             'Data': pedido[3],
-            'Cliente': pedido[6],  # cliente_nome
-            'Escola': pedido[7],   # escola_nome
-            'Total': float(pedido[5]),
+            'Cliente': pedido[6] if len(pedido) > 6 else 'N/A',
+            'Escola': pedido[7] if len(pedido) > 7 else 'N/A',
+            'Total': float(pedido[5]) if pedido[5] else 0.0,
             'Status': pedido[4]
         })
     
@@ -607,7 +777,6 @@ def gerar_relatorio_vendas():
 if 'db_initialized' not in st.session_state:
     if init_db():
         st.session_state.db_initialized = True
-        st.success("✅ Banco de dados inicializado com sucesso!")
     else:
         st.error("❌ Falha ao inicializar o banco de dados")
 
@@ -628,20 +797,66 @@ with st.sidebar:
     st.markdown(f"**🎯 {st.session_state.user_type.upper()}**")
     st.markdown("---")
     
-    menu = st.radio("📋 Navegação", [
+    # Menu base para todos os usuários
+    menu_options = [
         "📊 Dashboard",
         "🏫 Escolas", 
         "👕 Produtos",
         "👥 Clientes",
         "📦 Pedidos",
         "📈 Relatórios"
-    ])
+    ]
+    
+    # Apenas administradores podem gerenciar usuários
+    if st.session_state.user_type == 'admin':
+        menu_options.append("👥 Usuários")
+    
+    menu = st.radio("📋 Navegação", menu_options)
     
     st.markdown("---")
+    
+    # Botão para alterar senha (disponível para todos)
+    if st.button("🔐 Alterar Minha Senha", use_container_width=True):
+        st.session_state.alterar_senha = True
+    
     if st.button("🚪 Sair", use_container_width=True):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+
+# =========================================
+# 🔐 ALTERAÇÃO DE SENHA (MODAL)
+# =========================================
+
+if st.session_state.get('alterar_senha'):
+    with st.container():
+        st.markdown("<h3>🔐 Alterar Minha Senha</h3>", unsafe_allow_html=True)
+        
+        nova_senha = st.text_input("Nova Senha", type="password", key="nova_senha_input")
+        confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="confirmar_senha_input")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("✅ Salvar Nova Senha", use_container_width=True):
+                if nova_senha and confirmar_senha:
+                    if nova_senha == confirmar_senha:
+                        success, msg = alterar_senha(st.session_state.user_id, nova_senha)
+                        if success:
+                            st.success(msg)
+                            st.session_state.alterar_senha = False
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("❌ As senhas não coincidem!")
+                else:
+                    st.error("❌ Preencha todos os campos!")
+        
+        with col2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.session_state.alterar_senha = False
+                st.rerun()
 
 # =========================================
 # 📊 DASHBOARD PRINCIPAL
@@ -670,47 +885,27 @@ if menu == "📊 Dashboard":
         pedidos_count = len(listar_pedidos())
         st.metric("📦 Pedidos", pedidos_count)
     
-    # Métricas por escola
-    st.subheader("🏫 Métricas por Escola")
-    escolas = listar_escolas()
-    
-    for escola in escolas:
-        with st.expander(f"📊 {escola[1]}", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                produtos_escola = len(listar_produtos(escola[0]))
-                st.metric("📦 Produtos", produtos_escola)
-            
-            with col2:
-                clientes_escola = len(listar_clientes(escola[0]))
-                st.metric("👥 Clientes", clientes_escola)
-            
-            with col3:
-                pedidos_escola = len(listar_pedidos(escola[0]))
-                st.metric("🛒 Pedidos", pedidos_escola)
-    
     # Ações rápidas
     st.subheader("🚀 Ações Rápidas")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("➕ Nova Escola", use_container_width=True):
+        if st.button("➕ Nova Escola", use_container_width=True, key="btn_escola_dash"):
             st.session_state.menu = "🏫 Escolas"
             st.rerun()
     
     with col2:
-        if st.button("👕 Novo Produto", use_container_width=True):
+        if st.button("👕 Novo Produto", use_container_width=True, key="btn_produto_dash"):
             st.session_state.menu = "👕 Produtos"
             st.rerun()
     
     with col3:
-        if st.button("👥 Novo Cliente", use_container_width=True):
+        if st.button("👥 Novo Cliente", use_container_width=True, key="btn_cliente_dash"):
             st.session_state.menu = "👥 Clientes"
             st.rerun()
     
     with col4:
-        if st.button("📦 Novo Pedido", use_container_width=True):
+        if st.button("📦 Novo Pedido", use_container_width=True, key="btn_pedido_dash"):
             st.session_state.menu = "📦 Pedidos"
             st.rerun()
 
@@ -800,7 +995,8 @@ elif menu == "👕 Produtos":
                                    format_func=lambda x: escola_options[x])
         
         with col2:
-            categorias = ["Todas"] + list(set([p[2] for p in listar_produtos() if p[2]]))
+            produtos_todos = listar_produtos()
+            categorias = ["Todas"] + list(set([p[2] for p in produtos_todos if p[2]]))
             categoria = st.selectbox("Filtrar por categoria", options=categorias)
         
         # Lista de produtos
@@ -818,7 +1014,7 @@ elif menu == "👕 Produtos":
                     st.write(f"🏫 {escola_nome} | 📁 {produto[2]} | 📏 {produto[3]} | 🎨 {produto[4]}")
                 
                 with col2:
-                    st.write(f"💵 R$ {float(produto[5]):.2f}")
+                    st.write(f"💵 R$ {float(produto[5]):.2f}" if produto[5] else "💵 R$ 0.00")
                 
                 with col3:
                     estoque = produto[6] if produto[6] else 0
@@ -1077,21 +1273,103 @@ elif menu == "📦 Pedidos":
                     with col3:
                         if pedido[4] == 'pendente':
                             if st.button("✅ Entregue", key=f"entregue_{pedido[0]}"):
-                                # Atualizar status do pedido
-                                conn = get_connection()
-                                if conn:
-                                    try:
-                                        cur = conn.cursor()
-                                        cur.execute('UPDATE pedidos SET status = %s WHERE id = %s', ('entregue', pedido[0]))
-                                        conn.commit()
-                                        st.success("✅ Pedido marcado como entregue!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"❌ Erro: {e}")
-                                    finally:
-                                        conn.close()
+                                success, msg = atualizar_status_pedido(pedido[0], 'entregue')
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
         else:
             st.info("📝 Nenhum pedido realizado")
+
+# =========================================
+# 👥 GERENCIAMENTO DE USUÁRIOS (APENAS ADMIN)
+# =========================================
+
+elif menu == "👥 Usuários" and st.session_state.user_type == 'admin':
+    st.markdown("<h1 class='main-header'>👥 Gestão de Usuários</h1>", unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📋 Lista de Usuários", "➕ Adicionar Usuário"])
+    
+    with tab1:
+        st.subheader("📋 Lista de Usuários")
+        usuarios = listar_usuarios()
+        
+        if usuarios:
+            for usuario in usuarios:
+                col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+                
+                with col1:
+                    st.markdown(f"**{usuario[3]}**")
+                    st.write(f"👤 {usuario[1]} | 🎯 {usuario[4]}")
+                    st.write(f"📅 Cadastrado em: {usuario[5]}")
+                
+                with col2:
+                    # Botão para alterar senha do usuário
+                    if st.button("🔐", key=f"change_pwd_{usuario[0]}"):
+                        st.session_state.alterar_senha_usuario = usuario[0]
+                        st.session_state.nome_usuario = usuario[3]
+                
+                with col3:
+                    # Não permitir excluir o próprio usuário
+                    if usuario[0] != st.session_state.user_id:
+                        if st.button("🗑️", key=f"del_user_{usuario[0]}"):
+                            success, msg = excluir_usuario(usuario[0])
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    else:
+                        st.write("👤 Você")
+                
+                with col4:
+                    # Alterar tipo de usuário
+                    if usuario[0] != st.session_state.user_id:
+                        novo_tipo = st.selectbox(
+                            "Tipo",
+                            ["vendedor", "admin"],
+                            index=0 if usuario[4] == "vendedor" else 1,
+                            key=f"tipo_{usuario[0]}"
+                        )
+                        if novo_tipo != usuario[4]:
+                            conn = get_connection()
+                            if conn:
+                                try:
+                                    cur = conn.cursor()
+                                    placeholder = get_placeholder()
+                                    query = f'UPDATE usuarios SET tipo = {placeholder} WHERE id = {placeholder}'
+                                    cur.execute(query, (novo_tipo, usuario[0]))
+                                    conn.commit()
+                                    st.success(f"✅ Tipo de {usuario[3]} alterado para {novo_tipo}!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Erro: {e}")
+                                finally:
+                                    conn.close()
+                
+                st.markdown("---")
+        else:
+            st.info("📝 Nenhum usuário cadastrado")
+    
+    with tab2:
+        st.subheader("➕ Adicionar Novo Usuário")
+        with st.form("novo_usuario"):
+            username = st.text_input("👤 Nome de usuário*")
+            password = st.text_input("🔒 Senha*", type='password')
+            nome = st.text_input("📝 Nome completo*")
+            tipo = st.selectbox("🎯 Tipo de usuário", ["vendedor", "admin"])
+            
+            if st.form_submit_button("✅ Cadastrar Usuário", use_container_width=True):
+                if username and password and nome:
+                    success, msg = adicionar_usuario(username, password, nome, tipo)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                else:
+                    st.error("❌ Todos os campos são obrigatórios!")
 
 # =========================================
 # 📈 RELATÓRIOS
@@ -1166,12 +1444,48 @@ elif menu == "📈 Relatórios":
             st.info("📝 Nenhum produto cadastrado")
 
 # =========================================
+# 🔐 MODAL PARA ALTERAR SENHA DE USUÁRIO (ADMIN)
+# =========================================
+
+if st.session_state.get('alterar_senha_usuario'):
+    with st.container():
+        st.markdown(f"<h3>🔐 Alterar Senha de {st.session_state.nome_usuario}</h3>", unsafe_allow_html=True)
+        
+        nova_senha = st.text_input("Nova Senha", type="password", key="nova_senha_usuario_input")
+        confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="confirmar_senha_usuario_input")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("✅ Salvar Nova Senha", use_container_width=True, key="salvar_senha_usuario"):
+                if nova_senha and confirmar_senha:
+                    if nova_senha == confirmar_senha:
+                        success, msg = alterar_senha(st.session_state.alterar_senha_usuario, nova_senha)
+                        if success:
+                            st.success(msg)
+                            st.session_state.alterar_senha_usuario = None
+                            st.session_state.nome_usuario = None
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("❌ As senhas não coincidem!")
+                else:
+                    st.error("❌ Preencha todos os campos!")
+        
+        with col2:
+            if st.button("❌ Cancelar", use_container_width=True, key="cancelar_senha_usuario"):
+                st.session_state.alterar_senha_usuario = None
+                st.session_state.nome_usuario = None
+                st.rerun()
+
+# =========================================
 # 🎯 RODAPÉ
 # =========================================
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("👕 **FashionManager Pro**")
-st.sidebar.markdown("v3.0 • Sistema Completo")
+st.sidebar.markdown("v4.0 • Sistema Completo")
 
 # Verificar se está rodando no Render
 if os.environ.get('DATABASE_URL'):
