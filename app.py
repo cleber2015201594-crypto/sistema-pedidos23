@@ -19,7 +19,72 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# CSS Mobile Otimizado
+# =========================================
+# 🔐 SISTEMA DE PERMISSÕES AVANÇADO
+# =========================================
+
+PERMISSOES = {
+    'admin': {
+        'modulos': ['dashboard', 'clientes', 'pedidos', 'relatorios', 'administracao', 'estoque', 'financeiro'],
+        'acoes': ['criar', 'ler', 'editar', 'excluir', 'exportar', 'configurar'],
+        'descricao': 'Acesso total ao sistema'
+    },
+    'gestor': {
+        'modulos': ['dashboard', 'clientes', 'pedidos', 'relatorios', 'estoque'],
+        'acoes': ['criar', 'ler', 'editar', 'exportar'],
+        'descricao': 'Acesso gerencial completo'
+    },
+    'vendedor': {
+        'modulos': ['dashboard', 'clientes', 'pedidos'],
+        'acoes': ['criar', 'ler', 'editar'],
+        'descricao': 'Acesso operacional básico'
+    }
+}
+
+def verificar_permissao(tipo_usuario, modulo=None, acao=None):
+    """
+    Verifica se usuário tem permissão para acessar módulo ou executar ação
+    """
+    if tipo_usuario not in PERMISSOES:
+        return False
+    
+    # Se apenas verificar acesso ao módulo
+    if modulo and not acao:
+        return modulo in PERMISSOES[tipo_usuario]['modulos']
+    
+    # Se verificar ação específica no módulo
+    if modulo and acao:
+        tem_modulo = modulo in PERMISSOES[tipo_usuario]['modulos']
+        tem_acao = acao in PERMISSOES[tipo_usuario]['acoes']
+        return tem_modulo and tem_acao
+    
+    return True
+
+def mostrar_restricao_permissao():
+    """Exibe mensagem de restrição de permissão"""
+    st.error("""
+    ❌ **Acesso Restrito**
+    
+    Você não tem permissão para acessar esta funcionalidade.
+    
+    **Sua permissão:** {}
+    **Permissão necessária:** {}
+    
+    👨‍💼 _Contate o administrador do sistema_
+    """.format(
+        st.session_state.tipo_usuario,
+        'Admin ou Gestor'
+    ))
+
+def criar_usuario_com_permissao(username, password, nome_completo, tipo):
+    """Cria usuário com validação de tipo"""
+    tipos_validos = list(PERMISSOES.keys())
+    if tipo not in tipos_validos:
+        return False, f"Tipo de usuário inválido. Use: {', '.join(tipos_validos)}"
+    
+    return criar_usuario(username, password, nome_completo, tipo)
+
+# CSS Mobile Otimizado com indicadores de permissão
 st.markdown("""
 <style>
     @media (max-width: 768px) {
@@ -36,75 +101,35 @@ st.markdown("""
             font-size: 16px;
             padding: 0.75rem;
         }
-        .sidebar .sidebar-content {
-            padding: 1rem;
-        }
     }
     
-    /* Cards Modernos */
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        margin: 0.5rem 0;
-        text-align: center;
-    }
-    
-    .ai-card {
-        background: white;
-        padding: 1.5rem;
+    /* Indicadores de Permissão */
+    .permission-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
         border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        margin: 0.5rem 0;
-        border-left: 5px solid #4CAF50;
-    }
-    
-    .warning-card {
-        border-left: 5px solid #FF9800;
-        background: #FFF3E0;
-    }
-    
-    .danger-card {
-        border-left: 5px solid #F44336;
-        background: #FFEBEE;
-    }
-    
-    .info-card {
-        border-left: 5px solid #2196F3;
-        background: #E3F2FD;
-    }
-    
-    /* Botões Mobile */
-    .mobile-btn {
-        width: 100%;
-        padding: 1rem;
-        margin: 0.3rem 0;
-        border-radius: 10px;
-        border: none;
-        font-size: 16px;
+        font-size: 0.7rem;
         font-weight: bold;
+        margin-left: 0.5rem;
+    }
+    .badge-admin { background: #dc3545; color: white; }
+    .badge-gestor { background: #ffc107; color: black; }
+    .badge-vendedor { background: #28a745; color: white; }
+    
+    /* Cards com indicadores de acesso */
+    .card-with-permission { 
+        border-left: 4px solid #6c757d; 
+        opacity: 0.6;
+    }
+    .card-permission-allowed { 
+        border-left: 4px solid #28a745;
+        opacity: 1;
     }
     
-    .btn-primary { background: #4CAF50; color: white; }
-    .btn-secondary { background: #2196F3; color: white; }
-    .btn-warning { background: #FF9800; color: white; }
-    .btn-danger { background: #F44336; color: white; }
-    
-    /* Ícones */
-    .icon { font-size: 24px; margin-right: 10px; }
-    
-    /* Tabelas Responsivas */
-    .dataframe {
-        width: 100%;
-        font-size: 14px;
-    }
-    
-    @media (max-width: 768px) {
-        .dataframe {
-            font-size: 12px;
-        }
+    /* Botões desabilitados por permissão */
+    .btn-disabled { 
+        opacity: 0.5; 
+        cursor: not-allowed;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -464,11 +489,15 @@ def produtos_populares_ai():
             conn.close()
 
 # =========================================
-# 👥 SISTEMA DE CLIENTES - CORRIGIDO
+# 👥 SISTEMA DE CLIENTES - COM PERMISSÕES
 # =========================================
 
 def adicionar_cliente(nome, telefone=None, email=None, data_nascimento=None, cpf=None, endereco=None):
     """Adiciona cliente de forma segura"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'clientes', 'criar'):
+        return False, "❌ Sem permissão para criar clientes"
+    
     conn = get_connection()
     if not conn:
         return False, "Erro de conexão"
@@ -489,6 +518,10 @@ def adicionar_cliente(nome, telefone=None, email=None, data_nascimento=None, cpf
 
 def listar_clientes():
     """Lista todos os clientes"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'clientes', 'ler'):
+        return []
+    
     conn = get_connection()
     if not conn:
         return []
@@ -505,7 +538,11 @@ def listar_clientes():
             conn.close()
 
 def excluir_cliente(cliente_id):
-    """Exclui cliente com verificação"""
+    """Exclui cliente com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'clientes', 'excluir'):
+        return False, "❌ Sem permissão para excluir clientes"
+    
     conn = get_connection()
     if not conn:
         return False, "Erro de conexão"
@@ -527,12 +564,42 @@ def excluir_cliente(cliente_id):
         if conn:
             conn.close()
 
+def criar_usuario(username, password, nome_completo, tipo):
+    """Cria novo usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        password_hash = make_hashes(password)
+        
+        cursor.execute('''
+            INSERT INTO usuarios (username, password_hash, nome_completo, tipo)
+            VALUES (?, ?, ?, ?)
+        ''', (username, password_hash, nome_completo, tipo))
+        
+        conn.commit()
+        return True, "✅ Usuário criado com sucesso!"
+        
+    except sqlite3.IntegrityError:
+        return False, "❌ Username já existe"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
 # =========================================
-# 📦 SISTEMA DE PEDIDOS - CORRIGIDO
+# 📦 SISTEMA DE PEDIDOS - COM PERMISSÕES
 # =========================================
 
 def criar_pedido(cliente_id, itens, observacoes="", forma_pagamento=""):
-    """Cria pedido de forma segura"""
+    """Cria pedido de forma segura com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'pedidos', 'criar'):
+        return False, "❌ Sem permissão para criar pedidos"
+    
     conn = get_connection()
     if not conn:
         return False, "Erro de conexão"
@@ -570,7 +637,11 @@ def criar_pedido(cliente_id, itens, observacoes="", forma_pagamento=""):
             conn.close()
 
 def listar_pedidos():
-    """Lista todos os pedidos"""
+    """Lista todos os pedidos com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'pedidos', 'ler'):
+        return []
+    
     conn = get_connection()
     if not conn:
         return []
@@ -592,7 +663,11 @@ def listar_pedidos():
             conn.close()
 
 def excluir_pedido(pedido_id):
-    """Exclui pedido"""
+    """Exclui pedido com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'pedidos', 'excluir'):
+        return False, "❌ Sem permissão para excluir pedidos"
+    
     conn = get_connection()
     if not conn:
         return False, "Erro de conexão"
@@ -631,11 +706,15 @@ def listar_produtos():
             conn.close()
 
 # =========================================
-# 📊 RELATÓRIOS CSV
+# 📊 RELATÓRIOS CSV - COM PERMISSÕES
 # =========================================
 
 def gerar_csv_clientes():
-    """Gera CSV de clientes"""
+    """Gera CSV de clientes com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'relatorios', 'exportar'):
+        return None
+    
     conn = get_connection()
     if not conn:
         return None
@@ -671,11 +750,11 @@ def baixar_csv(data, filename):
     """Cria botão de download CSV"""
     if data:
         b64 = base64.b64encode(data.encode()).decode()
-        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv" class="mobile-btn btn-secondary">📥 Baixar {filename}</a>'
+        href = f'<a href="data:file/csv;base64,{b64}" download="{filename}.csv" style="background: #2196F3; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 4px; display: inline-block;">📥 Baixar {filename}</a>'
         st.markdown(href, unsafe_allow_html=True)
 
 # =========================================
-# 🏠 PÁGINA DE LOGIN MOBILE
+# 🏠 PÁGINA DE LOGIN COM INDICADOR DE PERMISSÃO
 # =========================================
 
 def pagina_login():
@@ -688,7 +767,7 @@ def pagina_login():
         col1, col2, col3 = st.columns([1, 2, 1])
         
         with col2:
-            st.markdown('<div class="ai-card">', unsafe_allow_html=True)
+            st.markdown('<div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">', unsafe_allow_html=True)
             st.subheader("🔐 Login")
             
             with st.form("login_form"):
@@ -716,45 +795,79 @@ def pagina_login():
             
             st.markdown('</div>', unsafe_allow_html=True)
             
-            # Credenciais de teste
-            st.markdown('<div class="info-card">', unsafe_allow_html=True)
+            # Credenciais de teste com indicadores de permissão
+            st.markdown('<div style="border-left: 4px solid #2196F3; background: #E3F2FD; padding: 1rem; border-radius: 8px; margin-top: 1rem;">', unsafe_allow_html=True)
             st.markdown("**🔑 Credenciais para teste:**")
-            st.markdown("- **Admin:** admin / admin123")
-            st.markdown("- **Gestor:** gestor / gestor123")  
-            st.markdown("- **Vendedor:** vendedor / vendedor123")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown("**Admin**")
+                st.markdown('<span class="permission-badge badge-admin">Admin</span>', unsafe_allow_html=True)
+                st.markdown("user: admin")
+                st.markdown("pass: admin123")
+                
+            with col2:
+                st.markdown("**Gestor**")
+                st.markdown('<span class="permission-badge badge-gestor">Gestor</span>', unsafe_allow_html=True)
+                st.markdown("user: gestor")
+                st.markdown("pass: gestor123")
+                
+            with col3:
+                st.markdown("**Vendedor**")
+                st.markdown('<span class="permission-badge badge-vendedor">Vendedor</span>', unsafe_allow_html=True)
+                st.markdown("user: vendedor")
+                st.markdown("pass: vendedor123")
+                
             st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================
-# 📱 DASHBOARD A.I. MOBILE
+# 📱 DASHBOARD A.I. COM INDICADORES DE PERMISSÃO
 # =========================================
 
 def mostrar_dashboard():
-    """Dashboard principal com A.I."""
-    st.markdown(f'<h1 style="text-align: center;">📊 Dashboard A.I. - {st.session_state.nome_completo}</h1>', unsafe_allow_html=True)
+    """Dashboard principal com A.I. e indicadores de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'dashboard'):
+        mostrar_restricao_permissao()
+        return
+    
+    # Header com indicador de permissão
+    badge_class = f"badge-{st.session_state.tipo_usuario}"
+    st.markdown(f'''
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h1>📊 Dashboard A.I.</h1>
+        <div>
+            <span class="permission-badge {badge_class}">{st.session_state.tipo_usuario.upper()}</span>
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    st.markdown(f"**Usuário:** {st.session_state.nome_completo} | **Permissão:** {PERMISSOES[st.session_state.tipo_usuario]['descricao']}")
+    st.markdown("---")
     
     # Métricas rápidas
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-permission-allowed" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">', unsafe_allow_html=True)
         st.markdown("👥 **Total Clientes**")
         st.markdown(f"<h2>{len(listar_clientes())}</h2>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-permission-allowed" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">', unsafe_allow_html=True)
         st.markdown("📦 **Pedidos Hoje**")
         st.markdown("<h2>8</h2>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col3:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-permission-allowed" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">', unsafe_allow_html=True)
         st.markdown("💰 **Vendas Dia**")
         st.markdown("<h2>R$ 2.850</h2>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col4:
-        st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-permission-allowed" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;">', unsafe_allow_html=True)
         st.markdown("📈 **Crescimento**")
         st.markdown("<h2>+12%</h2>", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
@@ -764,7 +877,7 @@ def mostrar_dashboard():
     st.markdown('<h2>🤖 Inteligência Artificial</h2>', unsafe_allow_html=True)
     
     # Previsões de Vendas
-    st.markdown('<div class="ai-card">', unsafe_allow_html=True)
+    st.markdown('<div class="card-permission-allowed" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">', unsafe_allow_html=True)
     st.markdown("### 📈 Previsão de Vendas")
     previsoes = previsao_vendas_ai()
     
@@ -782,7 +895,7 @@ def mostrar_dashboard():
     # Alertas de Estoque
     alertas_estoque = analise_estoque_ai()
     if alertas_estoque:
-        st.markdown('<div class="danger-card">', unsafe_allow_html=True)
+        st.markdown('<div style="border-left: 5px solid #F44336; background: #FFEBEE; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 1rem;">', unsafe_allow_html=True)
         st.markdown("### ⚠️ Alertas de Estoque")
         for alerta in alertas_estoque[:3]:  # Mostra apenas 3 alertas
             st.write(f"**{alerta['produto']}** - Estoque: {alerta['estoque_atual']} (Mín: {alerta['estoque_minimo']})")
@@ -791,42 +904,73 @@ def mostrar_dashboard():
     # Produtos Populares
     populares = produtos_populares_ai()
     if populares:
-        st.markdown('<div class="info-card">', unsafe_allow_html=True)
+        st.markdown('<div style="border-left: 5px solid #2196F3; background: #E3F2FD; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-top: 1rem;">', unsafe_allow_html=True)
         st.markdown("### 🏆 Produtos Populares")
         for i, produto in enumerate(populares, 1):
             st.write(f"{i}. **{produto['produto']}** - {produto['vendas']} vendas")
         st.markdown('</div>', unsafe_allow_html=True)
     
-    # Ações Rápidas
+    # Ações Rápidas com indicadores de permissão
     st.markdown("---")
     st.markdown('<h2>🚀 Ações Rápidas</h2>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("👥 Clientes", use_container_width=True, key="btn_clientes"):
-            st.session_state.menu = "👥 Clientes"
-            st.rerun()
-        if st.button("📊 Relatórios", use_container_width=True, key="btn_relatorios"):
-            st.session_state.menu = "📊 Relatórios"
-            st.rerun()
+        # Clientes - sempre visível para quem tem permissão
+        if verificar_permissao(st.session_state.tipo_usuario, 'clientes'):
+            if st.button("👥 Gerenciar Clientes", use_container_width=True, key="btn_clientes"):
+                st.session_state.menu = "👥 Clientes"
+                st.rerun()
+        else:
+            st.button("👥 Gerenciar Clientes", use_container_width=True, disabled=True, 
+                     help="Sem permissão para acessar clientes")
+        
+        # Relatórios - apenas para admin e gestor
+        if verificar_permissao(st.session_state.tipo_usuario, 'relatorios'):
+            if st.button("📊 Relatórios A.I.", use_container_width=True, key="btn_relatorios"):
+                st.session_state.menu = "📊 Relatórios"
+                st.rerun()
+        else:
+            st.button("📊 Relatórios A.I.", use_container_width=True, disabled=True,
+                     help="Sem permissão para acessar relatórios")
     
     with col2:
-        if st.button("📦 Pedidos", use_container_width=True, key="btn_pedidos"):
-            st.session_state.menu = "📦 Pedidos"
-            st.rerun()
-        if st.button("⚙️ Admin", use_container_width=True, key="btn_admin"):
-            st.session_state.menu = "⚙️ Administração"
-            st.rerun()
+        # Pedidos - sempre visível para quem tem permissão
+        if verificar_permissao(st.session_state.tipo_usuario, 'pedidos'):
+            if st.button("📦 Gerenciar Pedidos", use_container_width=True, key="btn_pedidos"):
+                st.session_state.menu = "📦 Pedidos"
+                st.rerun()
+        else:
+            st.button("📦 Gerenciar Pedidos", use_container_width=True, disabled=True,
+                     help="Sem permissão para acessar pedidos")
+        
+        # Administração - apenas para admin
+        if verificar_permissao(st.session_state.tipo_usuario, 'administracao'):
+            if st.button("⚙️ Administração", use_container_width=True, key="btn_admin"):
+                st.session_state.menu = "⚙️ Administração"
+                st.rerun()
+        else:
+            st.button("⚙️ Administração", use_container_width=True, disabled=True,
+                     help="Sem permissão para acessar administração")
 
 # =========================================
-# 👥 INTERFACE CLIENTES MOBILE
+# 👥 INTERFACE CLIENTES COM VERIFICAÇÃO DE PERMISSÃO
 # =========================================
 
 def mostrar_clientes():
-    """Interface de clientes para mobile"""
+    """Interface de clientes para mobile com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'clientes'):
+        mostrar_restricao_permissao()
+        return
+    
     st.header("👥 Gerenciar Clientes")
     
-    tab1, tab2, tab3 = st.tabs(["📋 Lista", "➕ Novo", "✏️ Editar"])
+    # Indicador de permissão
+    badge_class = f"badge-{st.session_state.tipo_usuario}"
+    st.markdown(f'<span class="permission-badge {badge_class}">{st.session_state.tipo_usuario.upper()}</span>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📋 Lista de Clientes", "➕ Novo Cliente"])
     
     with tab1:
         st.subheader("📋 Lista de Clientes")
@@ -836,25 +980,36 @@ def mostrar_clientes():
             st.info("📝 Nenhum cliente cadastrado.")
         else:
             for cliente in clientes:
-                with st.expander(f"👤 {cliente['nome']}"):
+                with st.expander(f"👤 {cliente['nome']} - 📞 {cliente['telefone'] or 'N/A'}"):
                     col1, col2 = st.columns([3, 1])
                     
                     with col1:
-                        st.write(f"**📞 Telefone:** {cliente['telefone'] or 'N/A'}")
                         st.write(f"**📧 Email:** {cliente['email'] or 'N/A'}")
+                        st.write(f"**🔢 CPF:** {cliente['cpf'] or 'N/A'}")
+                        st.write(f"**🏠 Endereço:** {cliente['endereco'] or 'N/A'}")
                         st.write(f"**📅 Cadastro:** {formatar_datahora_brasil(cliente['data_cadastro'])}")
                     
                     with col2:
-                        if st.button("🗑️ Excluir", key=f"del_{cliente['id']}"):
-                            success, message = excluir_cliente(cliente['id'])
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
+                        # Botão de exclusão com verificação de permissão
+                        if verificar_permissao(st.session_state.tipo_usuario, 'clientes', 'excluir'):
+                            if st.button("🗑️ Excluir", key=f"del_{cliente['id']}"):
+                                success, message = excluir_cliente(cliente['id'])
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        else:
+                            st.button("🗑️ Excluir", key=f"del_{cliente['id']}", disabled=True,
+                                     help="Sem permissão para excluir clientes")
     
     with tab2:
         st.subheader("➕ Novo Cliente")
+        
+        # Verifica permissão para criar
+        if not verificar_permissao(st.session_state.tipo_usuario, 'clientes', 'criar'):
+            st.error("❌ Você não tem permissão para criar novos clientes.")
+            return
         
         with st.form("novo_cliente_form", clear_on_submit=True):
             nome = st.text_input("👤 Nome Completo*", placeholder="Nome do cliente")
@@ -888,14 +1043,23 @@ def mostrar_clientes():
                         st.error(message)
 
 # =========================================
-# 📦 INTERFACE PEDIDOS MOBILE
+# 📦 INTERFACE PEDIDOS COM VERIFICAÇÃO DE PERMISSÃO
 # =========================================
 
 def mostrar_pedidos():
-    """Interface de pedidos para mobile"""
+    """Interface de pedidos para mobile com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'pedidos'):
+        mostrar_restricao_permissao()
+        return
+    
     st.header("📦 Gerenciar Pedidos")
     
-    tab1, tab2 = st.tabs(["📋 Pedidos", "➕ Novo Pedido"])
+    # Indicador de permissão
+    badge_class = f"badge-{st.session_state.tipo_usuario}"
+    st.markdown(f'<span class="permission-badge {badge_class}">{st.session_state.tipo_usuario.upper()}</span>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["📋 Lista de Pedidos", "➕ Novo Pedido"])
     
     with tab1:
         st.subheader("📋 Pedidos Realizados")
@@ -915,16 +1079,26 @@ def mostrar_pedidos():
                         st.write(f"**📊 Status:** {pedido['status']}")
                     
                     with col2:
-                        if st.button("🗑️ Excluir", key=f"del_pedido_{pedido['id']}"):
-                            success, message = excluir_pedido(pedido['id'])
-                            if success:
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(message)
+                        # Botão de exclusão com verificação de permissão
+                        if verificar_permissao(st.session_state.tipo_usuario, 'pedidos', 'excluir'):
+                            if st.button("🗑️ Excluir", key=f"del_pedido_{pedido['id']}"):
+                                success, message = excluir_pedido(pedido['id'])
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        else:
+                            st.button("🗑️ Excluir", key=f"del_pedido_{pedido['id']}", disabled=True,
+                                     help="Sem permissão para excluir pedidos")
     
     with tab2:
         st.subheader("➕ Criar Novo Pedido")
+        
+        # Verifica permissão para criar
+        if not verificar_permissao(st.session_state.tipo_usuario, 'pedidos', 'criar'):
+            st.error("❌ Você não tem permissão para criar novos pedidos.")
+            return
         
         clientes = listar_clientes()
         if not clientes:
@@ -937,25 +1111,58 @@ def mostrar_pedidos():
         
         if cliente_selecionado:
             st.success(f"✅ Cliente selecionado: {cliente_selecionado}")
-            st.info("🎯 Funcionalidade completa em desenvolvimento...")
+            
+            # Sistema simplificado de criação de pedidos
+            produtos = listar_produtos()
+            if produtos:
+                st.subheader("🛒 Produtos Disponíveis")
+                
+                # Aqui você pode expandir para um sistema completo de carrinho
+                produto_selecionado = st.selectbox(
+                    "Selecione o produto:",
+                    [f"{p['nome']} - {p['tamanho']} - R$ {p['preco']:.2f}" for p in produtos]
+                )
+                
+                quantidade = st.number_input("Quantidade:", min_value=1, value=1)
+                
+                if st.button("✅ Criar Pedido Simples", use_container_width=True):
+                    # Simulação de criação de pedido
+                    st.success("🎉 Pedido criado com sucesso!")
+                    st.info("💡 Em uma versão completa, aqui seria implementado o carrinho completo")
+            else:
+                st.warning("📦 Nenhum produto disponível em estoque.")
 
 # =========================================
-# 📊 RELATÓRIOS MOBILE
+# 📊 RELATÓRIOS COM VERIFICAÇÃO DE PERMISSÃO
 # =========================================
 
 def mostrar_relatorios():
-    """Interface de relatórios para mobile"""
+    """Interface de relatórios para mobile com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'relatorios'):
+        mostrar_restricao_permissao()
+        return
+    
     st.header("📊 Relatórios A.I.")
+    
+    # Indicador de permissão
+    badge_class = f"badge-{st.session_state.tipo_usuario}"
+    st.markdown(f'<span class="permission-badge {badge_class}">{st.session_state.tipo_usuario.upper()}</span>', unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("📥 Exportar Dados")
         
-        if st.button("👥 Clientes CSV", use_container_width=True):
-            csv_data = gerar_csv_clientes()
-            if csv_data:
-                baixar_csv(csv_data, "clientes")
+        # Verifica permissão para exportar
+        if verificar_permissao(st.session_state.tipo_usuario, 'relatorios', 'exportar'):
+            if st.button("👥 Exportar Clientes CSV", use_container_width=True):
+                csv_data = gerar_csv_clientes()
+                if csv_data:
+                    baixar_csv(csv_data, "clientes")
+        else:
+            st.button("👥 Exportar Clientes CSV", use_container_width=True, disabled=True,
+                     help="Sem permissão para exportar dados")
     
     with col2:
         st.subheader("📈 Métricas A.I.")
@@ -965,61 +1172,92 @@ def mostrar_relatorios():
         st.metric("Crescimento", "+15%")
 
 # =========================================
-# ⚙️ ADMINISTRAÇÃO MOBILE
+# ⚙️ ADMINISTRAÇÃO COM VERIFICAÇÃO DE PERMISSÃO
 # =========================================
 
 def mostrar_administracao():
-    """Interface administrativa para mobile"""
-    st.header("⚙️ Administração")
-    
-    if st.session_state.tipo_usuario not in ['admin', 'gestor']:
-        st.error("❌ Acesso restrito!")
+    """Interface administrativa para mobile com verificação de permissão"""
+    # Verifica permissão
+    if not verificar_permissao(st.session_state.tipo_usuario, 'administracao'):
+        mostrar_restricao_permissao()
         return
     
-    tab1, tab2 = st.tabs(["🔧 Sistema", "📊 Estatísticas"])
+    st.header("⚙️ Administração")
+    
+    # Indicador de permissão
+    st.markdown('<span class="permission-badge badge-admin">ADMIN</span>', unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["🔧 Sistema", "👥 Gerenciar Usuários"])
     
     with tab1:
-        st.subheader("🔧 Configurações")
+        st.subheader("🔧 Configurações do Sistema")
         
-        if st.button("🔄 Reiniciar Banco", use_container_width=True):
+        if st.button("🔄 Reiniciar Banco de Dados", use_container_width=True):
             with st.spinner("Reiniciando..."):
                 if init_db():
-                    st.success("✅ Banco reiniciado!")
+                    st.success("✅ Banco reiniciado com sucesso!")
                 else:
-                    st.error("❌ Erro ao reiniciar!")
+                    st.error("❌ Erro ao reiniciar banco!")
     
     with tab2:
-        st.subheader("📊 Estatísticas")
+        st.subheader("👥 Gerenciar Usuários")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Total Clientes", len(listar_clientes()))
-            st.metric("Produtos Ativos", "15")
-        with col2:
-            st.metric("Pedidos Hoje", "8")
-            st.metric("Faturamento", "R$ 2.850")
+        # Formulário para criar novo usuário
+        with st.form("form_novo_usuario"):
+            st.write("### ➕ Criar Novo Usuário")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                novo_username = st.text_input("Username")
+                novo_nome = st.text_input("Nome Completo")
+            with col2:
+                nova_senha = st.text_input("Senha", type="password")
+                novo_tipo = st.selectbox("Tipo", options=list(PERMISSOES.keys()))
+            
+            if st.form_submit_button("👤 Criar Usuário"):
+                if novo_username and nova_senha and novo_nome:
+                    success, message = criar_usuario_com_permissao(
+                        novo_username, nova_senha, novo_nome, novo_tipo
+                    )
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+                else:
+                    st.error("❌ Preencha todos os campos!")
 
 # =========================================
-# 🧩 MENU PRINCIPAL MOBILE
+# 🧩 MENU PRINCIPAL COM FILTRAGEM POR PERMISSÃO
 # =========================================
 
 def mostrar_menu_principal():
-    """Menu mobile otimizado"""
+    """Menu mobile otimizado com filtragem por permissão"""
     st.sidebar.markdown('<div style="text-align: center; padding: 1rem 0;">', unsafe_allow_html=True)
     st.sidebar.markdown('<h2>👕 Menu</h2>', unsafe_allow_html=True)
+    
+    # Badge de permissão
+    badge_class = f"badge-{st.session_state.tipo_usuario}"
+    st.sidebar.markdown(f'<span class="permission-badge {badge_class}">{st.session_state.tipo_usuario.upper()}</span>', unsafe_allow_html=True)
+    
     st.sidebar.markdown(f"**👤 {st.session_state.nome_completo}**")
-    st.sidebar.markdown(f"**🎯 {st.session_state.tipo_usuario}**")
     st.sidebar.markdown('</div>', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
-    # Menu baseado no tipo de usuário
+    # Menu baseado nas permissões
     menu_options = ["🏠 Dashboard"]
     
-    if st.session_state.tipo_usuario in ['admin', 'gestor', 'vendedor']:
-        menu_options.extend(["👥 Clientes", "📦 Pedidos", "📊 Relatórios"])
+    # Filtra opções baseado nas permissões
+    if verificar_permissao(st.session_state.tipo_usuario, 'clientes'):
+        menu_options.append("👥 Clientes")
     
-    if st.session_state.tipo_usuario in ['admin', 'gestor']:
-        menu_options.extend(["⚙️ Administração"])
+    if verificar_permissao(st.session_state.tipo_usuario, 'pedidos'):
+        menu_options.append("📦 Pedidos")
+    
+    if verificar_permissao(st.session_state.tipo_usuario, 'relatorios'):
+        menu_options.append("📊 Relatórios")
+    
+    if verificar_permissao(st.session_state.tipo_usuario, 'administracao'):
+        menu_options.append("⚙️ Administração")
     
     menu = st.sidebar.selectbox("Navegação", menu_options, key="menu_select")
     
@@ -1050,7 +1288,7 @@ def main():
     # Menu principal
     menu = mostrar_menu_principal()
     
-    # Navegação
+    # Navegação com verificação de permissão
     if menu == "🏠 Dashboard":
         mostrar_dashboard()
     elif menu == "👥 Clientes":
