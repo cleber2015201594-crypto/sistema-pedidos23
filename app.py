@@ -46,7 +46,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # =========================================
-# 🗃️ CONEXÃO COM BANCO
+# 🗃️ CONEXÃO COM BANCO - CORRIGIDA
 # =========================================
 
 def get_connection():
@@ -55,8 +55,26 @@ def get_connection():
         database_url = os.environ.get('DATABASE_URL')
         
         if database_url:
-            # PostgreSQL no Render - usar a URL diretamente
-            conn = psycopg2.connect(database_url, sslmode='require')
+            # PostgreSQL no Render - corrigindo a conexão
+            # Parse da URL para extrair componentes
+            parsed_url = urllib.parse.urlparse(database_url)
+            
+            # Extrair informações de conexão
+            dbname = parsed_url.path[1:]  # Remove a barra inicial
+            user = parsed_url.username
+            password = parsed_url.password
+            host = parsed_url.hostname
+            port = parsed_url.port
+            
+            # Criar conexão com parâmetros individuais
+            conn = psycopg2.connect(
+                dbname=dbname,
+                user=user,
+                password=password,
+                host=host,
+                port=port,
+                sslmode='require'
+            )
             return conn
         else:
             # SQLite local para desenvolvimento
@@ -71,6 +89,30 @@ def get_connection():
 def get_placeholder():
     """Retorna o placeholder correto para o banco"""
     return '%s' if os.environ.get('DATABASE_URL') else '?'
+
+def formatar_data_brasil(data):
+    """Formata data para o padrão brasileiro DD/MM/YYYY"""
+    if data is None:
+        return "N/A"
+    
+    try:
+        # Se for string, converter para datetime
+        if isinstance(data, str):
+            # Tentar diferentes formatos
+            for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%d/%m/%Y', '%d/%m/%Y %H:%M:%S']:
+                try:
+                    data = datetime.strptime(data, fmt)
+                    break
+                except ValueError:
+                    continue
+        
+        # Se for datetime, formatar
+        if isinstance(data, datetime):
+            return data.strftime('%d/%m/%Y')
+        else:
+            return str(data)
+    except Exception:
+        return str(data)
 
 def init_db():
     """Inicializa o banco de dados com tabelas necessárias"""
@@ -157,8 +199,7 @@ def init_db():
             # Inserir usuários padrão
             usuarios_padrao = [
                 ('admin', 'admin123', 'Administrador Principal', 'admin'),
-                ('vendedor1', 'vendedor123', 'João Vendedor', 'vendedor'),
-                ('vendedor2', 'vendedor123', 'Maria Vendedora', 'vendedor')
+                ('vendedor', 'venda123', 'Vendedor Padrão', 'vendedor')
             ]
             
             for usuario in usuarios_padrao:
@@ -248,8 +289,7 @@ def init_db():
             # Inserir usuários padrão
             usuarios_padrao = [
                 ('admin', 'admin123', 'Administrador Principal', 'admin'),
-                ('vendedor1', 'vendedor123', 'João Vendedor', 'vendedor'),
-                ('vendedor2', 'vendedor123', 'Maria Vendedora', 'vendedor')
+                ('vendedor', 'venda123', 'Vendedor Padrão', 'vendedor')
             ]
             
             for usuario in usuarios_padrao:
@@ -275,7 +315,7 @@ def init_db():
             conn.close()
 
 # =========================================
-# 🔐 SISTEMA DE LOGIN
+# 🔐 SISTEMA DE LOGIN - SIMPLIFICADO
 # =========================================
 
 def check_login(username, password):
@@ -305,7 +345,7 @@ def check_login(username, password):
             conn.close()
 
 def login_page():
-    """Página de login"""
+    """Página de login simplificada"""
     st.markdown("<h1 class='main-header'>👕 FashionManager Pro</h1>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -313,8 +353,8 @@ def login_page():
     with col2:
         st.info("🔐 **Faça login para continuar**")
         
-        username = st.text_input("👤 Usuário")
-        password = st.text_input("🔒 Senha", type='password')
+        username = st.text_input("Usuário")
+        password = st.text_input("Senha", type='password')
         
         if st.button("🚀 Entrar", use_container_width=True):
             if username and password:
@@ -335,8 +375,7 @@ def login_page():
         st.markdown("---")
         st.markdown("**👤 Usuários de teste:**")
         st.markdown("- **admin** / **admin123** (Administrador)")
-        st.markdown("- **vendedor1** / **vendedor123** (Vendedor)")
-        st.markdown("- **vendedor2** / **vendedor123** (Vendedor)")
+        st.markdown("- **vendedor** / **venda123** (Vendedor)")
 
 # =========================================
 # 👥 FUNÇÕES DE GERENCIAMENTO DE USUÁRIOS
@@ -760,7 +799,7 @@ def gerar_relatorio_vendas():
     for pedido in pedidos:
         dados.append({
             'Pedido': pedido[0],
-            'Data': pedido[3],
+            'Data': formatar_data_brasil(pedido[3]),
             'Cliente': pedido[6] if len(pedido) > 6 else 'N/A',
             'Escola': pedido[7] if len(pedido) > 7 else 'N/A',
             'Total': float(pedido[5]) if pedido[5] else 0.0,
@@ -775,6 +814,9 @@ def gerar_relatorio_vendas():
 
 # Inicializar banco de dados
 if 'db_initialized' not in st.session_state:
+    st.session_state.db_initialized = False
+
+if not st.session_state.db_initialized:
     if init_db():
         st.session_state.db_initialized = True
     else:
@@ -789,12 +831,12 @@ if not st.session_state.logged_in:
     st.stop()
 
 # =========================================
-# 🎨 MENU PRINCIPAL
+# 🎨 MENU PRINCIPAL - SIMPLIFICADO
 # =========================================
 
 with st.sidebar:
-    st.markdown(f"**👤 {st.session_state.user_name}**")
-    st.markdown(f"**🎯 {st.session_state.user_type.upper()}**")
+    st.markdown(f"**{st.session_state.user_name}**")
+    st.markdown(f"**{st.session_state.user_type.upper()}**")
     st.markdown("---")
     
     # Menu base para todos os usuários
@@ -811,12 +853,12 @@ with st.sidebar:
     if st.session_state.user_type == 'admin':
         menu_options.append("👥 Usuários")
     
-    menu = st.radio("📋 Navegação", menu_options)
+    menu = st.radio("Navegação", menu_options)
     
     st.markdown("---")
     
     # Botão para alterar senha (disponível para todos)
-    if st.button("🔐 Alterar Minha Senha", use_container_width=True):
+    if st.button("🔐 Alterar Senha", use_container_width=True):
         st.session_state.alterar_senha = True
     
     if st.button("🚪 Sair", use_container_width=True):
@@ -830,7 +872,7 @@ with st.sidebar:
 
 if st.session_state.get('alterar_senha'):
     with st.container():
-        st.markdown("<h3>🔐 Alterar Minha Senha</h3>", unsafe_allow_html=True)
+        st.markdown("<h3>🔐 Alterar Senha</h3>", unsafe_allow_html=True)
         
         nova_senha = st.text_input("Nova Senha", type="password", key="nova_senha_input")
         confirmar_senha = st.text_input("Confirmar Nova Senha", type="password", key="confirmar_senha_input")
@@ -838,7 +880,7 @@ if st.session_state.get('alterar_senha'):
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("✅ Salvar Nova Senha", use_container_width=True):
+            if st.button("✅ Salvar", use_container_width=True):
                 if nova_senha and confirmar_senha:
                     if nova_senha == confirmar_senha:
                         success, msg = alterar_senha(st.session_state.user_id, nova_senha)
@@ -866,27 +908,27 @@ if menu == "📊 Dashboard":
     st.markdown("<h1 class='main-header'>📊 Dashboard</h1>", unsafe_allow_html=True)
     
     # Métricas gerais
-    st.subheader("📈 Métricas Gerais")
+    st.subheader("Métricas Gerais")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         escolas_count = len(listar_escolas())
-        st.metric("🏫 Escolas", escolas_count)
+        st.metric("Escolas", escolas_count)
     
     with col2:
         clientes_count = len(listar_clientes())
-        st.metric("👥 Clientes", clientes_count)
+        st.metric("Clientes", clientes_count)
     
     with col3:
         produtos_count = len(listar_produtos())
-        st.metric("👕 Produtos", produtos_count)
+        st.metric("Produtos", produtos_count)
     
     with col4:
         pedidos_count = len(listar_pedidos())
-        st.metric("📦 Pedidos", pedidos_count)
+        st.metric("Pedidos", pedidos_count)
     
     # Ações rápidas
-    st.subheader("🚀 Ações Rápidas")
+    st.subheader("Ações Rápidas")
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -919,7 +961,7 @@ elif menu == "🏫 Escolas":
     tab1, tab2 = st.tabs(["📋 Lista de Escolas", "➕ Cadastrar Escola"])
     
     with tab1:
-        st.subheader("📋 Lista de Escolas Cadastradas")
+        st.subheader("Lista de Escolas Cadastradas")
         escolas = listar_escolas()
         
         if escolas:
@@ -934,7 +976,7 @@ elif menu == "🏫 Escolas":
                         st.write(f"📞 {escola[3]}")
                     if escola[4]:
                         st.write(f"📧 {escola[4]}")
-                    st.write(f"📅 Cadastrada em: {escola[5]}")
+                    st.write(f"📅 {formatar_data_brasil(escola[5])}")
                 
                 with col2:
                     produtos_count = len(listar_produtos(escola[0]))
@@ -954,7 +996,7 @@ elif menu == "🏫 Escolas":
             st.info("📝 Nenhuma escola cadastrada")
     
     with tab2:
-        st.subheader("➕ Cadastrar Nova Escola")
+        st.subheader("Cadastrar Nova Escola")
         with st.form("nova_escola"):
             nome = st.text_input("Nome da Escola*", placeholder="Ex: Escola Municipal São Paulo")
             endereco = st.text_input("Endereço", placeholder="Ex: Rua Principal, 123 - Centro")
@@ -982,7 +1024,7 @@ elif menu == "👕 Produtos":
     tab1, tab2, tab3 = st.tabs(["📋 Lista de Produtos", "➕ Cadastrar Produto", "📊 Estatísticas"])
     
     with tab1:
-        st.subheader("📋 Lista de Produtos")
+        st.subheader("Lista de Produtos")
         
         # Filtros
         col1, col2 = st.columns(2)
@@ -1012,6 +1054,7 @@ elif menu == "👕 Produtos":
                     st.markdown(f"**{produto[1]}**")
                     escola_nome = next((escola[1] for escola in escolas if escola[0] == produto[7]), "N/A")
                     st.write(f"🏫 {escola_nome} | 📁 {produto[2]} | 📏 {produto[3]} | 🎨 {produto[4]}")
+                    st.write(f"📅 {formatar_data_brasil(produto[8])}")
                 
                 with col2:
                     st.write(f"💵 R$ {float(produto[5]):.2f}" if produto[5] else "💵 R$ 0.00")
@@ -1035,7 +1078,7 @@ elif menu == "👕 Produtos":
             st.info("📝 Nenhum produto cadastrado")
     
     with tab2:
-        st.subheader("➕ Cadastrar Novo Produto")
+        st.subheader("Cadastrar Novo Produto")
         escolas = listar_escolas()
         
         if not escolas:
@@ -1068,7 +1111,7 @@ elif menu == "👕 Produtos":
                         st.error("❌ Campos obrigatórios: Nome, Cor e Escola")
     
     with tab3:
-        st.subheader("📊 Estatísticas de Produtos")
+        st.subheader("Estatísticas de Produtos")
         
         # Métricas visuais
         col1, col2, col3 = st.columns(3)
@@ -1084,7 +1127,7 @@ elif menu == "👕 Produtos":
             st.metric("Estoque Baixo", produtos_baixo_estoque)
         
         # Gráfico de categorias
-        st.subheader("📈 Distribuição por Categoria")
+        st.subheader("Distribuição por Categoria")
         produtos = listar_produtos()
         if produtos:
             categorias = {}
@@ -1107,7 +1150,7 @@ elif menu == "👥 Clientes":
     tab1, tab2 = st.tabs(["📋 Lista de Clientes", "➕ Cadastrar Cliente"])
     
     with tab1:
-        st.subheader("📋 Lista de Clientes")
+        st.subheader("Lista de Clientes")
         
         # Filtro por escola
         escolas = listar_escolas()
@@ -1131,7 +1174,7 @@ elif menu == "👥 Clientes":
                         st.write(f"📧 {cliente[3]}")
                     escola_nome = next((escola[1] for escola in escolas if escola[0] == cliente[4]), "N/A")
                     st.write(f"🏫 {escola_nome}")
-                    st.write(f"📅 Cadastrado em: {cliente[5]}")
+                    st.write(f"📅 {formatar_data_brasil(cliente[5])}")
                 
                 with col2:
                     # Contar pedidos do cliente
@@ -1152,7 +1195,7 @@ elif menu == "👥 Clientes":
             st.info("📝 Nenhum cliente cadastrado")
     
     with tab2:
-        st.subheader("➕ Cadastrar Novo Cliente")
+        st.subheader("Cadastrar Novo Cliente")
         escolas = listar_escolas()
         
         if not escolas:
@@ -1191,7 +1234,7 @@ elif menu == "📦 Pedidos":
     tab1, tab2 = st.tabs(["🆕 Novo Pedido", "📋 Pedidos Realizados"])
     
     with tab1:
-        st.subheader("🆕 Criar Novo Pedido")
+        st.subheader("Criar Novo Pedido")
         
         with st.form("novo_pedido"):
             # Selecionar escola
@@ -1200,7 +1243,7 @@ elif menu == "📦 Pedidos":
                 st.error("❌ É necessário cadastrar uma escola primeiro.")
                 st.stop()
             
-            escola_id = st.selectbox("🏫 Escola*", options=[e[0] for e in escolas], 
+            escola_id = st.selectbox("Escola*", options=[e[0] for e in escolas], 
                                    format_func=lambda x: next((e[1] for e in escolas if e[0] == x), "N/A"))
             
             # Selecionar cliente
@@ -1209,11 +1252,11 @@ elif menu == "📦 Pedidos":
                 st.error("❌ Não há clientes cadastrados para esta escola.")
                 st.stop()
             
-            cliente_id = st.selectbox("👥 Cliente*", options=[c[0] for c in clientes], 
+            cliente_id = st.selectbox("Cliente*", options=[c[0] for c in clientes], 
                                     format_func=lambda x: next((c[1] for c in clientes if c[0] == x), "N/A"))
             
             # Selecionar produtos
-            st.subheader("🛒 Itens do Pedido")
+            st.subheader("Itens do Pedido")
             produtos = listar_produtos(escola_id)
             if not produtos:
                 st.error("❌ Não há produtos cadastrados para esta escola.")
@@ -1246,7 +1289,7 @@ elif menu == "📦 Pedidos":
                     st.error("❌ Adicione pelo menos um item ao pedido.")
     
     with tab2:
-        st.subheader("📋 Pedidos Realizados")
+        st.subheader("Pedidos Realizados")
         
         # Filtro por escola
         escolas = listar_escolas()
@@ -1264,7 +1307,7 @@ elif menu == "📦 Pedidos":
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
-                        st.write(f"**Data:** {pedido[3]}")
+                        st.write(f"**Data:** {formatar_data_brasil(pedido[3])}")
                         st.write(f"**Status:** {pedido[4]}")
                     
                     with col2:
@@ -1292,7 +1335,7 @@ elif menu == "👥 Usuários" and st.session_state.user_type == 'admin':
     tab1, tab2 = st.tabs(["📋 Lista de Usuários", "➕ Adicionar Usuário"])
     
     with tab1:
-        st.subheader("📋 Lista de Usuários")
+        st.subheader("Lista de Usuários")
         usuarios = listar_usuarios()
         
         if usuarios:
@@ -1302,7 +1345,7 @@ elif menu == "👥 Usuários" and st.session_state.user_type == 'admin':
                 with col1:
                     st.markdown(f"**{usuario[3]}**")
                     st.write(f"👤 {usuario[1]} | 🎯 {usuario[4]}")
-                    st.write(f"📅 Cadastrado em: {usuario[5]}")
+                    st.write(f"📅 {formatar_data_brasil(usuario[5])}")
                 
                 with col2:
                     # Botão para alterar senha do usuário
@@ -1353,12 +1396,12 @@ elif menu == "👥 Usuários" and st.session_state.user_type == 'admin':
             st.info("📝 Nenhum usuário cadastrado")
     
     with tab2:
-        st.subheader("➕ Adicionar Novo Usuário")
+        st.subheader("Adicionar Novo Usuário")
         with st.form("novo_usuario"):
-            username = st.text_input("👤 Nome de usuário*")
-            password = st.text_input("🔒 Senha*", type='password')
-            nome = st.text_input("📝 Nome completo*")
-            tipo = st.selectbox("🎯 Tipo de usuário", ["vendedor", "admin"])
+            username = st.text_input("Nome de usuário*")
+            password = st.text_input("Senha*", type='password')
+            nome = st.text_input("Nome completo*")
+            tipo = st.selectbox("Tipo de usuário", ["vendedor", "admin"])
             
             if st.form_submit_button("✅ Cadastrar Usuário", use_container_width=True):
                 if username and password and nome:
@@ -1381,7 +1424,7 @@ elif menu == "📈 Relatórios":
     tab1, tab2 = st.tabs(["📊 Vendas", "📦 Estoque"])
     
     with tab1:
-        st.subheader("📊 Relatório de Vendas")
+        st.subheader("Relatório de Vendas")
         
         df_vendas = gerar_relatorio_vendas()
         
@@ -1402,7 +1445,7 @@ elif menu == "📈 Relatórios":
             st.dataframe(df_vendas, use_container_width=True)
             
             # Gráfico de vendas por escola
-            st.subheader("📈 Vendas por Escola")
+            st.subheader("Vendas por Escola")
             vendas_por_escola = df_vendas.groupby('Escola')['Total'].sum().reset_index()
             fig = px.bar(vendas_por_escola, x='Escola', y='Total', title='Faturamento por Escola')
             st.plotly_chart(fig, use_container_width=True)
@@ -1410,7 +1453,7 @@ elif menu == "📈 Relatórios":
             st.info("📝 Nenhuma venda registrada")
     
     with tab2:
-        st.subheader("📦 Relatório de Estoque")
+        st.subheader("Relatório de Estoque")
         
         produtos = listar_produtos()
         if produtos:
@@ -1457,7 +1500,7 @@ if st.session_state.get('alterar_senha_usuario'):
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("✅ Salvar Nova Senha", use_container_width=True, key="salvar_senha_usuario"):
+            if st.button("✅ Salvar", use_container_width=True, key="salvar_senha_usuario"):
                 if nova_senha and confirmar_senha:
                     if nova_senha == confirmar_senha:
                         success, msg = alterar_senha(st.session_state.alterar_senha_usuario, nova_senha)
@@ -1485,7 +1528,7 @@ if st.session_state.get('alterar_senha_usuario'):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("👕 **FashionManager Pro**")
-st.sidebar.markdown("v4.0 • Sistema Completo")
+st.sidebar.markdown("v5.0 • Sistema Completo")
 
 # Verificar se está rodando no Render
 if os.environ.get('DATABASE_URL'):
