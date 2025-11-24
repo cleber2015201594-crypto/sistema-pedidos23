@@ -1,8 +1,7 @@
 import streamlit as st
 import sqlite3
 import hashlib
-from datetime import datetime, date
-import re
+from datetime import datetime, date, timedelta
 
 # =========================================
 # 🎯 CONFIGURAÇÃO
@@ -219,6 +218,146 @@ def verificar_login(username, password):
 # 📊 FUNÇÕES DO SISTEMA
 # =========================================
 
+def listar_usuarios():
+    """Lista todos os usuários"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, nome_completo, tipo, ativo FROM usuarios ORDER BY username')
+        return cursor.fetchall()
+    except Exception as e:
+        st.error(f"Erro ao listar usuários: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def criar_usuario(username, password, nome_completo, tipo):
+    """Cria novo usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        password_hash = make_hashes(password)
+        
+        cursor.execute('''
+            INSERT INTO usuarios (username, password_hash, nome_completo, tipo)
+            VALUES (?, ?, ?, ?)
+        ''', (username, password_hash, nome_completo, tipo))
+        
+        conn.commit()
+        return True, "✅ Usuário criado com sucesso!"
+        
+    except sqlite3.IntegrityError:
+        return False, "❌ Username já existe"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def alterar_senha_usuario(username, nova_senha):
+    """Altera senha do usuário"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        nova_senha_hash = make_hashes(nova_senha)
+        
+        cursor.execute('''
+            UPDATE usuarios SET password_hash = ? WHERE username = ?
+        ''', (nova_senha_hash, username))
+        
+        conn.commit()
+        return True, "✅ Senha alterada com sucesso!"
+        
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def adicionar_escola(nome, endereco, telefone):
+    """Adiciona nova escola"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO escolas (nome, endereco, telefone)
+            VALUES (?, ?, ?)
+        ''', (nome, endereco, telefone))
+        
+        conn.commit()
+        return True, "✅ Escola cadastrada com sucesso!"
+    except sqlite3.IntegrityError:
+        return False, "❌ Escola já existe"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def editar_escola(escola_id, nome, endereco, telefone):
+    """Edita escola existente"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE escolas 
+            SET nome = ?, endereco = ?, telefone = ?
+            WHERE id = ?
+        ''', (nome, endereco, telefone, escola_id))
+        
+        conn.commit()
+        return True, "✅ Escola atualizada com sucesso!"
+    except sqlite3.IntegrityError:
+        return False, "❌ Nome da escola já existe"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def excluir_escola(escola_id):
+    """Exclui escola"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Verificar se há clientes ou produtos vinculados
+        cursor.execute("SELECT COUNT(*) FROM clientes WHERE escola_id = ?", (escola_id,))
+        if cursor.fetchone()[0] > 0:
+            return False, "❌ Escola possui clientes vinculados"
+        
+        cursor.execute("SELECT COUNT(*) FROM produtos WHERE escola_id = ?", (escola_id,))
+        if cursor.fetchone()[0] > 0:
+            return False, "❌ Escola possui produtos vinculados"
+        
+        cursor.execute("DELETE FROM escolas WHERE id = ?", (escola_id,))
+        conn.commit()
+        return True, "✅ Escola excluída com sucesso!"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
 def adicionar_cliente(nome, telefone, email, escola_id):
     conn = get_connection()
     if not conn:
@@ -284,6 +423,28 @@ def excluir_cliente(cliente_id):
         cursor.execute("DELETE FROM clientes WHERE id = ?", (cliente_id,))
         conn.commit()
         return True, "✅ Cliente excluído com sucesso!"
+    except Exception as e:
+        return False, f"❌ Erro: {str(e)}"
+    finally:
+        if conn:
+            conn.close()
+
+def editar_cliente(cliente_id, nome, telefone, email, escola_id):
+    """Edita cliente existente"""
+    conn = get_connection()
+    if not conn:
+        return False, "Erro de conexão"
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE clientes 
+            SET nome = ?, telefone = ?, email = ?, escola_id = ?
+            WHERE id = ?
+        ''', (nome, telefone, email, escola_id, cliente_id))
+        
+        conn.commit()
+        return True, "✅ Cliente atualizado com sucesso!"
     except Exception as e:
         return False, f"❌ Erro: {str(e)}"
     finally:
@@ -526,19 +687,98 @@ def excluir_pedido(pedido_id):
         if conn:
             conn.close()
 
-def get_escola_usuario(usuario_id):
-    """Retorna a escola do usuário (para vendedores)"""
-    # Em um sistema real, isso viria de uma tabela de usuários_escolas
-    # Por enquanto, vamos usar uma lógica simples
+# =========================================
+# 📈 RELATÓRIOS SEM PANDAS
+# =========================================
+
+def gerar_relatorio_vendas_por_escola(data_inicio=None, data_fim=None):
+    """Gera relatório de vendas por escola"""
     conn = get_connection()
     if not conn:
-        return None
+        return []
     
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT escola_id FROM usuarios WHERE id = ?", (usuario_id,))
-        resultado = cursor.fetchone()
-        return resultado['escola_id'] if resultado else None
+        
+        query = '''
+            SELECT 
+                e.nome as escola,
+                COUNT(p.id) as total_pedidos,
+                SUM(p.valor_total) as total_vendas,
+                AVG(p.valor_total) as ticket_medio
+            FROM pedidos p
+            JOIN clientes c ON p.cliente_id = c.id
+            JOIN escolas e ON c.escola_id = e.id
+        '''
+        
+        params = []
+        if data_inicio and data_fim:
+            query += " WHERE DATE(p.data_pedido) BETWEEN ? AND ?"
+            params.extend([data_inicio, data_fim])
+        
+        query += " GROUP BY e.id, e.nome ORDER BY total_vendas DESC"
+        
+        cursor.execute(query, params)
+        return cursor.fetchall()
+        
+    except Exception as e:
+        st.error(f"Erro ao gerar relatório: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def gerar_relatorio_produtos_por_escola():
+    """Gera relatório de produtos por escola"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                e.nome as escola,
+                p.categoria,
+                COUNT(p.id) as total_produtos,
+                SUM(p.estoque) as estoque_total,
+                SUM(p.estoque * p.preco) as valor_estoque
+            FROM produtos p
+            JOIN escolas e ON p.escola_id = e.id
+            GROUP BY e.id, e.nome, p.categoria
+            ORDER BY e.nome, p.categoria
+        ''')
+        return cursor.fetchall()
+    except Exception as e:
+        st.error(f"Erro ao gerar relatório: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def gerar_relatorio_clientes_por_escola():
+    """Gera relatório de clientes por escola"""
+    conn = get_connection()
+    if not conn:
+        return []
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                e.nome as escola,
+                COUNT(c.id) as total_clientes,
+                COUNT(DISTINCT p.cliente_id) as clientes_com_pedidos
+            FROM clientes c
+            JOIN escolas e ON c.escola_id = e.id
+            LEFT JOIN pedidos p ON c.id = p.cliente_id
+            GROUP BY e.id, e.nome
+            ORDER BY total_clientes DESC
+        ''')
+        return cursor.fetchall()
+    except Exception as e:
+        st.error(f"Erro ao gerar relatório: {e}")
+        return []
     finally:
         if conn:
             conn.close()
@@ -551,8 +791,8 @@ def interface_admin():
     """Interface para Administrador"""
     st.header("👑 Painel do Administrador")
     
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "📊 Dashboard", "👥 Clientes", "👕 Produtos", "📦 Pedidos", "🏫 Escolas", "⚙️ Sistema"
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+        "📊 Dashboard", "👥 Clientes", "👕 Produtos", "📦 Pedidos", "🏫 Escolas", "👤 Usuários", "📈 Relatórios"
     ])
     
     with tab1:
@@ -582,8 +822,8 @@ def interface_admin():
         col1, col2 = st.columns(2)
         
         with col1:
-            with st.form("novo_cliente_admin"):
-                st.write("➕ Novo Cliente")
+            st.write("➕ Novo Cliente")
+            with st.form("novo_cliente_admin", clear_on_submit=True):
                 nome = st.text_input("Nome completo*")
                 telefone = st.text_input("Telefone")
                 email = st.text_input("Email")
@@ -617,13 +857,15 @@ def interface_admin():
                     with col_b:
                         st.write(f"**Data Cadastro:** {cliente['data_cadastro']}")
                     
-                    if st.button("🗑️ Excluir", key=f"del_cli_{cliente['id']}"):
-                        sucesso, msg = excluir_cliente(cliente['id'])
-                        if sucesso:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                    col_c, col_d = st.columns(2)
+                    with col_c:
+                        if st.button("🗑️ Excluir", key=f"del_cli_{cliente['id']}"):
+                            sucesso, msg = excluir_cliente(cliente['id'])
+                            if sucesso:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
     
     with tab3:
         st.subheader("👕 Gestão de Produtos")
@@ -631,8 +873,8 @@ def interface_admin():
         col1, col2 = st.columns(2)
         
         with col1:
-            with st.form("novo_produto_admin"):
-                st.write("➕ Novo Produto")
+            st.write("➕ Novo Produto")
+            with st.form("novo_produto_admin", clear_on_submit=True):
                 nome = st.text_input("Nome do produto*")
                 categoria = st.selectbox("Categoria", ["Camiseta", "Calça", "Short", "Agasalho", "Acessório"])
                 tamanho = st.selectbox("Tamanho", ["PP", "P", "M", "G", "GG", "2", "4", "6", "8", "10", "12"])
@@ -673,24 +915,154 @@ def interface_admin():
     
     with tab5:
         st.subheader("🏫 Gestão de Escolas")
-        # Aqui poderia adicionar CRUD completo de escolas
-        escolas = listar_escolas()
-        for escola in escolas:
-            st.write(f"**{escola['nome']}**")
-            st.write(f"Endereço: {escola['endereco']}")
-            st.write(f"Telefone: {escola['telefone']}")
-            st.write("---")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("➕ Nova Escola")
+            with st.form("nova_escola", clear_on_submit=True):
+                nome = st.text_input("Nome da Escola*")
+                endereco = st.text_input("Endereço")
+                telefone = st.text_input("Telefone")
+                
+                if st.form_submit_button("✅ Cadastrar Escola"):
+                    if nome:
+                        sucesso, msg = adicionar_escola(nome, endereco, telefone)
+                        if sucesso:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("❌ Nome da escola é obrigatório")
+        
+        with col2:
+            st.write("📋 Escolas Cadastradas")
+            escolas = listar_escolas()
+            
+            for escola in escolas:
+                with st.expander(f"🏫 {escola['nome']}"):
+                    st.write(f"**Endereço:** {escola['endereco']}")
+                    st.write(f"**Telefone:** {escola['telefone']}")
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        if st.button("✏️ Editar", key=f"edit_esc_{escola['id']}"):
+                            st.session_state.editando_escola = escola['id']
+                    with col_b:
+                        if st.button("🗑️ Excluir", key=f"del_esc_{escola['id']}"):
+                            sucesso, msg = excluir_escola(escola['id'])
+                            if sucesso:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    
+                    # Formulário de edição
+                    if st.session_state.get('editando_escola') == escola['id']:
+                        with st.form(f"editar_escola_{escola['id']}", clear_on_submit=True):
+                            novo_nome = st.text_input("Nome", value=escola['nome'])
+                            novo_endereco = st.text_input("Endereço", value=escola['endereco'] or "")
+                            novo_telefone = st.text_input("Telefone", value=escola['telefone'] or "")
+                            
+                            col_c, col_d = st.columns(2)
+                            with col_c:
+                                if st.form_submit_button("💾 Salvar"):
+                                    sucesso, msg = editar_escola(escola['id'], novo_nome, novo_endereco, novo_telefone)
+                                    if sucesso:
+                                        st.success(msg)
+                                        del st.session_state.editando_escola
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                            with col_d:
+                                if st.form_submit_button("❌ Cancelar"):
+                                    del st.session_state.editando_escola
+                                    st.rerun()
     
     with tab6:
-        st.subheader("⚙️ Configurações do Sistema")
-        st.info("Configurações administrativas do sistema")
+        st.subheader("👤 Gestão de Usuários")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("➕ Novo Usuário")
+            with st.form("novo_usuario", clear_on_submit=True):
+                username = st.text_input("Username*")
+                password = st.text_input("Senha*", type="password")
+                nome_completo = st.text_input("Nome Completo*")
+                tipo = st.selectbox("Tipo", ["admin", "gestor", "vendedor"])
+                
+                if st.form_submit_button("✅ Criar Usuário"):
+                    if username and password and nome_completo:
+                        sucesso, msg = criar_usuario(username, password, nome_completo, tipo)
+                        if sucesso:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("❌ Todos os campos são obrigatórios")
+        
+        with col2:
+            st.write("📋 Usuários do Sistema")
+            usuarios = listar_usuarios()
+            
+            for usuario in usuarios:
+                with st.expander(f"👤 {usuario['username']} - {usuario['tipo']}"):
+                    st.write(f"**Nome:** {usuario['nome_completo']}")
+                    st.write(f"**Status:** {'✅ Ativo' if usuario['ativo'] else '❌ Inativo'}")
+                    
+                    # Alterar senha
+                    with st.form(f"alterar_senha_{usuario['id']}", clear_on_submit=True):
+                        nova_senha = st.text_input("Nova Senha", type="password", key=f"pwd_{usuario['id']}")
+                        if st.form_submit_button("🔐 Alterar Senha"):
+                            if nova_senha:
+                                sucesso, msg = alterar_senha_usuario(usuario['username'], nova_senha)
+                                if sucesso:
+                                    st.success(msg)
+                                else:
+                                    st.error(msg)
+                            else:
+                                st.error("❌ Digite uma nova senha")
+    
+    with tab7:
+        st.subheader("📈 Relatórios por Escola")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("📊 Vendas por Escola")
+            relatorio_vendas = gerar_relatorio_vendas_por_escola()
+            
+            if relatorio_vendas:
+                for item in relatorio_vendas:
+                    st.metric(
+                        label=f"🏫 {item['escola']}",
+                        value=f"R$ {item['total_vendas']:,.2f}",
+                        delta=f"{item['total_pedidos']} pedidos"
+                    )
+            else:
+                st.info("📊 Sem dados de vendas para exibir")
+        
+        with col2:
+            st.write("👥 Clientes por Escola")
+            relatorio_clientes = gerar_relatorio_clientes_por_escola()
+            
+            if relatorio_clientes:
+                for item in relatorio_clientes:
+                    st.metric(
+                        label=f"🏫 {item['escola']}",
+                        value=f"{item['total_clientes']} clientes",
+                        delta=f"{item['clientes_com_pedidos']} ativos"
+                    )
 
 def interface_gestor():
     """Interface para Gestor"""
     st.header("📈 Painel do Gestor")
     
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Dashboard", "👥 Clientes", "👕 Produtos", "📦 Pedidos"
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📊 Dashboard", "👥 Clientes", "👕 Produtos", "📦 Pedidos", "📈 Relatórios"
     ])
     
     with tab1:
@@ -715,7 +1087,6 @@ def interface_gestor():
     with tab2:
         st.subheader("👥 Clientes")
         
-        # Gestor pode ver todos os clientes
         clientes = listar_clientes()
         for cliente in clientes:
             with st.expander(f"👤 {cliente['nome']} - {cliente['escola_nome']}"):
@@ -741,6 +1112,20 @@ def interface_gestor():
     
     with tab4:
         interface_pedidos('gestor')
+    
+    with tab5:
+        st.subheader("📈 Relatórios")
+        
+        st.write("📊 Vendas por Escola")
+        relatorio_vendas = gerar_relatorio_vendas_por_escola()
+        
+        if relatorio_vendas:
+            for item in relatorio_vendas:
+                st.write(f"**{item['escola']}**")
+                st.write(f"- Total Vendas: R$ {item['total_vendas']:,.2f}")
+                st.write(f"- Pedidos: {item['total_pedidos']}")
+                st.write(f"- Ticket Médio: R$ {item['ticket_medio']:,.2f}")
+                st.write("---")
 
 def interface_vendedor():
     """Interface para Vendedor"""
@@ -760,8 +1145,8 @@ def interface_vendedor():
         col1, col2 = st.columns(2)
         
         with col1:
-            with st.form("novo_cliente_vendedor"):
-                st.write("➕ Novo Cliente")
+            st.write("➕ Novo Cliente")
+            with st.form("novo_cliente_vendedor", clear_on_submit=True):
                 nome = st.text_input("Nome completo*")
                 telefone = st.text_input("Telefone*")
                 email = st.text_input("Email")
@@ -1019,6 +1404,25 @@ def main():
     # Interface baseada no tipo de usuário
     st.sidebar.markdown(f"**👤 {st.session_state.nome_usuario}**")
     st.sidebar.markdown(f"**🎯 {st.session_state.tipo_usuario.upper()}**")
+    
+    # Alterar própria senha
+    with st.sidebar.expander("🔐 Alterar Minha Senha"):
+        with st.form("alterar_minha_senha", clear_on_submit=True):
+            nova_senha = st.text_input("Nova Senha", type="password")
+            confirmar_senha = st.text_input("Confirmar Senha", type="password")
+            
+            if st.form_submit_button("💾 Alterar Senha"):
+                if nova_senha and confirmar_senha:
+                    if nova_senha == confirmar_senha:
+                        sucesso, msg = alterar_senha_usuario(st.session_state.username, nova_senha)
+                        if sucesso:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+                    else:
+                        st.error("❌ Senhas não coincidem")
+                else:
+                    st.error("❌ Preencha todos os campos")
     
     # Logout
     if st.sidebar.button("🚪 Sair", use_container_width=True):
