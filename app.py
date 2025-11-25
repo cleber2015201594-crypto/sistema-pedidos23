@@ -1,5 +1,4 @@
 import streamlit as st
-import plotly.express as px
 from datetime import datetime, date
 import json
 import os
@@ -223,15 +222,50 @@ def get_pedidos():
     conn.close()
     return pedidos
 
+# Funções de Gestão de Usuários
+def add_usuario(username, password, nivel):
+    conn = sqlite3.connect('gestao.db')
+    c = conn.cursor()
+    try:
+        senha_hash = hash_password(password)
+        c.execute("INSERT INTO usuarios (username, password, nivel) VALUES (?, ?, ?)",
+                 (username, senha_hash, nivel))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+def get_usuarios():
+    conn = sqlite3.connect('gestao.db')
+    c = conn.cursor()
+    c.execute("SELECT id, username, nivel, criado_em FROM usuarios ORDER BY username")
+    usuarios = c.fetchall()
+    conn.close()
+    return usuarios
+
+def delete_usuario(usuario_id):
+    conn = sqlite3.connect('gestao.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM usuarios WHERE id=?", (usuario_id,))
+    conn.commit()
+    conn.close()
+
+def update_usuario_password(usuario_id, nova_senha):
+    conn = sqlite3.connect('gestao.db')
+    c = conn.cursor()
+    nova_senha_hash = hash_password(nova_senha)
+    c.execute("UPDATE usuarios SET password=? WHERE id=?", (nova_senha_hash, usuario_id))
+    conn.commit()
+    conn.close()
+
 # Sistema de IA - Previsões Simples
 def previsao_vendas():
     # Simulação de previsão de vendas
     meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun']
-    vendas = [12000, 15000, 18000, 22000, 25000, 29000]  # Tendência de crescimento
-    
-    fig = px.line(x=meses, y=vendas, title='Previsão de Vendas - Próximos 6 Meses')
-    fig.update_layout(xaxis_title='Mês', yaxis_title='Vendas (R$)')
-    return fig
+    vendas = [12000, 15000, 18000, 22000, 25000, 29000]
+    return meses, vendas
 
 def alertas_estoque():
     conn = sqlite3.connect('gestao.db')
@@ -275,6 +309,7 @@ def show_login():
 
 def show_main_app():
     st.sidebar.title(f"👋 Bem-vindo, {st.session_state.user[1]}")
+    st.sidebar.write(f"**Nível:** {st.session_state.user[3]}")
     
     # Menu lateral baseado no nível de usuário
     menu_options = ["📊 Dashboard", "👥 Gestão de Clientes", "🏫 Gestão de Escolas", 
@@ -327,24 +362,28 @@ def show_dashboard():
         total_vendas = sum(pedido[4] for pedido in pedidos)
         st.metric("Faturamento Total", f"R$ {total_vendas:,.2f}")
     
-    # Gráficos
+    # Gráficos simplificados sem Plotly
     col1, col2 = st.columns(2)
     
     with col1:
-        st.plotly_chart(previsao_vendas(), use_container_width=True)
+        st.subheader("Previsão de Vendas")
+        meses, vendas = previsao_vendas()
+        
+        # Gráfico de barras simples
+        for i, (mes, venda) in enumerate(zip(meses, vendas)):
+            st.write(f"{mes}: R$ {venda:,.2f}")
+            st.progress(min(venda / 30000, 1.0))
     
     with col2:
-        # Gráfico de status dos pedidos
+        st.subheader("Status dos Pedidos")
+        pedidos = get_pedidos()
         status_count = {}
         for pedido in pedidos:
             status = pedido[3]
             status_count[status] = status_count.get(status, 0) + 1
         
-        if status_count:
-            fig = px.pie(values=list(status_count.values()), 
-                        names=list(status_count.keys()),
-                        title="Status dos Pedidos")
-            st.plotly_chart(fig, use_container_width=True)
+        for status, count in status_count.items():
+            st.write(f"**{status}:** {count} pedidos")
 
 def show_client_management():
     st.title("👥 Gestão de Clientes")
@@ -361,10 +400,13 @@ def show_client_management():
             endereco = st.text_area("Endereço")
             
             if st.form_submit_button("Cadastrar Cliente"):
-                if add_cliente(nome, telefone, email, cpf, endereco):
-                    st.success("Cliente cadastrado com sucesso!")
+                if nome and cpf:
+                    if add_cliente(nome, telefone, email, cpf, endereco):
+                        st.success("Cliente cadastrado com sucesso!")
+                    else:
+                        st.error("Erro: CPF já cadastrado no sistema")
                 else:
-                    st.error("Erro: CPF já cadastrado no sistema")
+                    st.error("Nome e CPF são obrigatórios")
     
     with tab2:
         st.subheader("Lista de Clientes")
@@ -384,22 +426,25 @@ def show_client_management():
         st.subheader("Buscar e Editar Clientes")
         search_term = st.text_input("Buscar por nome ou CPF")
         
+        clientes = get_clientes()
         if search_term:
             clientes_filtrados = [c for c in clientes if search_term.lower() in c[1].lower() or search_term in c[4]]
+        else:
+            clientes_filtrados = clientes
             
-            for cliente in clientes_filtrados:
-                with st.form(f"edit_{cliente[0]}"):
-                    st.write(f"Editando: {cliente[1]}")
-                    nome = st.text_input("Nome", value=cliente[1], key=f"nome_{cliente[0]}")
-                    telefone = st.text_input("Telefone", value=cliente[2], key=f"tel_{cliente[0]}")
-                    email = st.text_input("Email", value=cliente[3], key=f"email_{cliente[0]}")
-                    cpf = st.text_input("CPF", value=cliente[4], key=f"cpf_{cliente[0]}")
-                    endereco = st.text_area("Endereço", value=cliente[5], key=f"end_{cliente[0]}")
-                    
-                    if st.form_submit_button("Atualizar"):
-                        update_cliente(cliente[0], nome, telefone, email, cpf, endereco)
-                        st.success("Cliente atualizado!")
-                        st.rerun()
+        for cliente in clientes_filtrados:
+            with st.form(f"edit_{cliente[0]}"):
+                st.write(f"Editando: {cliente[1]}")
+                nome = st.text_input("Nome", value=cliente[1], key=f"nome_{cliente[0]}")
+                telefone = st.text_input("Telefone", value=cliente[2], key=f"tel_{cliente[0]}")
+                email = st.text_input("Email", value=cliente[3], key=f"email_{cliente[0]}")
+                cpf = st.text_input("CPF", value=cliente[4], key=f"cpf_{cliente[0]}")
+                endereco = st.text_area("Endereço", value=cliente[5], key=f"end_{cliente[0]}")
+                
+                if st.form_submit_button("Atualizar"):
+                    update_cliente(cliente[0], nome, telefone, email, cpf, endereco)
+                    st.success("Cliente atualizado!")
+                    st.rerun()
 
 def show_school_management():
     st.title("🏫 Gestão de Escolas")
@@ -416,8 +461,11 @@ def show_school_management():
             responsavel = st.text_input("Responsável")
             
             if st.form_submit_button("Cadastrar Escola"):
-                add_escola(nome, telefone, email, endereco, responsavel)
-                st.success("Escola cadastrada com sucesso!")
+                if nome:
+                    add_escola(nome, telefone, email, endereco, responsavel)
+                    st.success("Escola cadastrada com sucesso!")
+                else:
+                    st.error("Nome da escola é obrigatório")
     
     with tab2:
         st.subheader("Escolas Parceiras")
@@ -446,10 +494,20 @@ def show_order_management():
             col1, col2 = st.columns(2)
             
             with col1:
-                cliente_selecionado = st.selectbox("Cliente", 
-                                                  [f"{c[0]} - {c[1]}" for c in clientes])
-                escola_selecionada = st.selectbox("Escola", 
-                                                 [f"{e[0]} - {e[1]}" for e in escolas])
+                cliente_options = [f"{c[0]} - {c[1]}" for c in clientes]
+                if cliente_options:
+                    cliente_selecionado = st.selectbox("Cliente", cliente_options)
+                else:
+                    st.warning("Nenhum cliente cadastrado")
+                    cliente_selecionado = None
+                    
+                escola_options = [f"{e[0]} - {e[1]}" for e in escolas]
+                if escola_options:
+                    escola_selecionada = st.selectbox("Escola", escola_options)
+                else:
+                    st.warning("Nenhuma escola cadastrada")
+                    escola_selecionada = None
+                    
                 desconto = st.number_input("Desconto (%)", min_value=0.0, max_value=100.0, value=0.0)
             
             st.subheader("Itens do Pedido")
@@ -458,9 +516,12 @@ def show_order_management():
             for i in range(3):  # Permite até 3 itens inicialmente
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    produto = st.selectbox(f"Produto {i+1}", 
-                                          [f"{p[0]} - {p[1]}" for p in produtos],
-                                          key=f"prod_{i}")
+                    produto_options = [f"{p[0]} - {p[1]} (R$ {p[3]:.2f})" for p in produtos]
+                    if produto_options:
+                        produto = st.selectbox(f"Produto {i+1}", produto_options, key=f"prod_{i}")
+                    else:
+                        st.warning("Nenhum produto cadastrado")
+                        produto = None
                 with col2:
                     quantidade = st.number_input(f"Quantidade {i+1}", min_value=0, value=0, key=f"qtd_{i}")
                 with col3:
@@ -474,19 +535,22 @@ def show_order_management():
                         'preco': preco
                     })
             
-            if st.form_submit_button("Criar Pedido"):
+            if st.form_submit_button("Criar Pedido") and cliente_selecionado and escola_selecionada:
                 cliente_id = int(cliente_selecionado.split(' - ')[0])
                 escola_id = int(escola_selecionada.split(' - ')[0])
                 
-                pedido_id = add_pedido(cliente_id, escola_id, itens, desconto)
-                st.success(f"Pedido #{pedido_id} criado com sucesso!")
+                if itens:
+                    pedido_id = add_pedido(cliente_id, escola_id, itens, desconto)
+                    st.success(f"Pedido #{pedido_id} criado com sucesso!")
+                else:
+                    st.error("Adicione pelo menos um item ao pedido")
     
     with tab2:
         st.subheader("Histórico de Pedidos")
         pedidos = get_pedidos()
         
         for pedido in pedidos:
-            with st.expander(f"Pedido #{pedido[0]} - {pedido[8]} - R$ {pedido[4]:.2f}"):
+            with st.expander(f"Pedido #{pedido[0]} - {pedido[6]} - R$ {pedido[4]:.2f}"):
                 st.write(f"**Cliente:** {pedido[6]}")
                 st.write(f"**Escola:** {pedido[7]}")
                 st.write(f"**Status:** {pedido[3]}")
@@ -507,27 +571,27 @@ def show_reports():
             clientes = get_clientes()
             output = StringIO()
             writer = csv.writer(output)
-            writer.writerow(['ID', 'Nome', 'Telefone', 'Email', 'CPF', 'Endereço'])
+            writer.writerow(['ID', 'Nome', 'Telefone', 'Email', 'CPF', 'Endereço', 'Data_Criacao'])
             writer.writerows(clientes)
-            st.download_button("Baixar CSV", output.getvalue(), "clientes.csv")
+            st.download_button("Baixar CSV", output.getvalue(), "clientes.csv", "text/csv")
     
     with col2:
         if st.button("Exportar Pedidos CSV"):
             pedidos = get_pedidos()
             output = StringIO()
             writer = csv.writer(output)
-            writer.writerow(['ID', 'Cliente_ID', 'Escola_ID', 'Status', 'Total', 'Desconto', 'Data'])
+            writer.writerow(['ID', 'Cliente_ID', 'Escola_ID', 'Status', 'Total', 'Desconto', 'Data', 'Cliente_Nome', 'Escola_Nome'])
             writer.writerows(pedidos)
-            st.download_button("Baixar CSV", output.getvalue(), "pedidos.csv")
+            st.download_button("Baixar CSV", output.getvalue(), "pedidos.csv", "text/csv")
     
     with col3:
         if st.button("Exportar Escolas CSV"):
             escolas = get_escolas()
             output = StringIO()
             writer = csv.writer(output)
-            writer.writerow(['ID', 'Nome', 'Telefone', 'Email', 'Endereço', 'Responsável'])
+            writer.writerow(['ID', 'Nome', 'Telefone', 'Email', 'Endereço', 'Responsável', 'Data_Criacao'])
             writer.writerows(escolas)
-            st.download_button("Baixar CSV", output.getvalue(), "escolas.csv")
+            st.download_button("Baixar CSV", output.getvalue(), "escolas.csv", "text/csv")
 
 def show_ai_system():
     st.title("🤖 Sistema A.I. Inteligente")
@@ -536,7 +600,12 @@ def show_ai_system():
     
     with tab1:
         st.subheader("Previsões de Vendas")
-        st.plotly_chart(previsao_vendas(), use_container_width=True)
+        meses, vendas = previsao_vendas()
+        
+        # Mostrar previsões em formato de tabela
+        st.write("**Previsão para os próximos 6 meses:**")
+        for mes, venda in zip(meses, vendas):
+            st.write(f"- {mes}: R$ {venda:,.2f}")
         
         # Análise de tendências
         st.subheader("Análise de Tendências")
@@ -545,6 +614,7 @@ def show_ai_system():
         - Tendência de crescimento: 15% ao mês
         - Produtos mais populares: Uniformes escolares
         - Período de pico: Início do ano letivo
+        - Recomendação: Aumentar estoque em 20% para o próximo trimestre
         """)
     
     with tab2:
@@ -553,22 +623,60 @@ def show_ai_system():
         
         if alertas:
             for alerta in alertas:
-                st.error(f"⚠️ {alerta[0]} - Estoque: {alerta[2]} (Mínimo: {alerta[1]})")
+                st.error(f"⚠️ **{alerta[0]}** - Estoque atual: {alerta[2]} (Mínimo recomendado: {alerta[1]})")
         else:
-            st.success("✅ Nenhum alerta de estoque no momento")
+            st.success("✅ Nenhum alerta de estoque baixo no momento")
 
 def show_admin_panel():
     if st.session_state.user[3] != 'admin':
-        st.error("Acesso negado!")
+        st.error("Acesso negado! Apenas administradores podem acessar esta área.")
         return
         
     st.title("🔐 Painel de Administração")
     
-    tab1, tab2 = st.tabs(["Gerenciar Usuários", "Backup de Dados"])
+    tab1, tab2, tab3 = st.tabs(["Gerenciar Usuários", "Backup de Dados", "Alterar Minha Senha"])
     
     with tab1:
         st.subheader("Gerenciar Usuários")
-        # Implementar CRUD de usuários aqui
+        
+        # Adicionar novo usuário
+        with st.form("novo_usuario"):
+            st.write("**Adicionar Novo Usuário**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                username = st.text_input("Nome de usuário")
+            with col2:
+                password = st.text_input("Senha", type="password")
+            with col3:
+                nivel = st.selectbox("Nível", ["admin", "gestor", "vendedor"])
+            
+            if st.form_submit_button("Criar Usuário"):
+                if username and password:
+                    if add_usuario(username, password, nivel):
+                        st.success(f"Usuário {username} criado com sucesso!")
+                    else:
+                        st.error("Erro: Nome de usuário já existe")
+                else:
+                    st.error("Nome de usuário e senha são obrigatórios")
+        
+        # Listar usuários existentes
+        st.subheader("Usuários do Sistema")
+        usuarios = get_usuarios()
+        
+        for usuario in usuarios:
+            with st.expander(f"{usuario[1]} - {usuario[2]}"):
+                st.write(f"ID: {usuario[0]}")
+                st.write(f"Nível: {usuario[2]}")
+                st.write(f"Criado em: {usuario[3]}")
+                
+                if usuario[1] != "admin":  # Não permite excluir o admin principal
+                    if st.button(f"Excluir Usuário", key=f"del_user_{usuario[0]}"):
+                        delete_usuario(usuario[0])
+                        st.success("Usuário excluído!")
+                        st.rerun()
+                else:
+                    st.info("Usuário admin principal - não pode ser excluído")
     
     with tab2:
         st.subheader("Backup de Dados")
@@ -587,8 +695,33 @@ def show_admin_panel():
             conn.close()
             
             # Salvar como JSON
-            backup_json = json.dumps(backup_data, indent=2)
-            st.download_button("Baixar Backup", backup_json, "backup_sistema.json")
+            backup_json = json.dumps(backup_data, indent=2, default=str)
+            st.download_button(
+                "📥 Baixar Backup", 
+                backup_json, 
+                "backup_sistema.json",
+                "application/json"
+            )
+            st.success("Backup gerado com sucesso!")
+    
+    with tab3:
+        st.subheader("Alterar Minha Senha")
+        
+        with st.form("alterar_senha"):
+            senha_atual = st.text_input("Senha Atual", type="password")
+            nova_senha = st.text_input("Nova Senha", type="password")
+            confirmar_senha = st.text_input("Confirmar Nova Senha", type="password")
+            
+            if st.form_submit_button("Alterar Senha"):
+                if nova_senha == confirmar_senha:
+                    # Verificar senha atual
+                    if verify_login(st.session_state.user[1], senha_atual):
+                        update_usuario_password(st.session_state.user[0], nova_senha)
+                        st.success("Senha alterada com sucesso!")
+                    else:
+                        st.error("Senha atual incorreta")
+                else:
+                    st.error("As novas senhas não coincidem")
 
 if __name__ == "__main__":
     main()
