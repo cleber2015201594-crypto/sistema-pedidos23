@@ -6,8 +6,10 @@ import hashlib
 import csv
 from io import StringIO
 import pytz
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
 import urllib.parse
 
 # Configuração da página
@@ -18,35 +20,104 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Função para conexão com PostgreSQL
-def get_db_connection():
+# Configuração do banco de dados
+def get_database_url():
     database_url = os.environ.get('DATABASE_URL')
-    
     if database_url:
-        # Parse da URL do PostgreSQL
-        urllib.parse.uses_netloc.append("postgres")
-        url = urllib.parse.urlparse(database_url)
-        
-        conn = psycopg2.connect(
-            database=url.path[1:],
-            user=url.username,
-            password=url.password,
-            host=url.hostname,
-            port=url.port,
-            sslmode='require'
-        )
-        return conn
+        if database_url.startswith('postgres://'):
+            database_url = database_url.replace('postgres://', 'postgresql://', 1)
+        return database_url
     else:
-        # Fallback para SQLite local (desenvolvimento)
-        import sqlite3
-        return sqlite3.connect('gestao.db')
+        return 'sqlite:///gestao.db'
+
+# Criar engine do SQLAlchemy
+engine = create_engine(get_database_url())
+Base = declarative_base()
+
+# Definir modelos
+class Usuario(Base):
+    __tablename__ = 'usuarios'
+    id = Column(Integer, primary_key=True)
+    username = Column(String(50), unique=True, nullable=False)
+    password = Column(String(255), nullable=False)
+    nivel = Column(String(20), nullable=False)
+    criado_em = Column(DateTime, default=datetime.now)
+
+class Cliente(Base):
+    __tablename__ = 'clientes'
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), nullable=False)
+    telefone = Column(String(20))
+    email = Column(String(100))
+    cpf = Column(String(20))
+    endereco = Column(Text)
+    criado_em = Column(DateTime, default=datetime.now)
+
+class Escola(Base):
+    __tablename__ = 'escolas'
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), nullable=False)
+    telefone = Column(String(20))
+    email = Column(String(100))
+    endereco = Column(Text)
+    responsavel = Column(String(100))
+    criado_em = Column(DateTime, default=datetime.now)
+
+class Produto(Base):
+    __tablename__ = 'produtos'
+    id = Column(Integer, primary_key=True)
+    nome = Column(String(100), nullable=False)
+    descricao = Column(Text)
+    preco = Column(Float, nullable=False)
+    custo = Column(Float)
+    estoque_minimo = Column(Integer, default=5)
+    tamanho = Column(String(10))
+    criado_em = Column(DateTime, default=datetime.now)
+    __table_args__ = (UniqueConstraint('nome', 'tamanho', name='_nome_tamanho_uc'),)
+
+class EstoqueEscola(Base):
+    __tablename__ = 'estoque_escolas'
+    id = Column(Integer, primary_key=True)
+    escola_id = Column(Integer, ForeignKey('escolas.id'))
+    produto_id = Column(Integer, ForeignKey('produtos.id'))
+    quantidade = Column(Integer, default=0)
+    __table_args__ = (UniqueConstraint('escola_id', 'produto_id', name='_escola_produto_uc'),)
+
+class Pedido(Base):
+    __tablename__ = 'pedidos'
+    id = Column(Integer, primary_key=True)
+    cliente_id = Column(Integer, ForeignKey('clientes.id'))
+    escola_id = Column(Integer, ForeignKey('escolas.id'))
+    status = Column(String(20), default='Pendente')
+    total = Column(Float)
+    desconto = Column(Float, default=0)
+    custo_total = Column(Float)
+    lucro_total = Column(Float)
+    margem_lucro = Column(Float)
+    criado_em = Column(DateTime, default=datetime.now)
+
+class ItemPedido(Base):
+    __tablename__ = 'itens_pedido'
+    id = Column(Integer, primary_key=True)
+    pedido_id = Column(Integer, ForeignKey('pedidos.id'))
+    produto_id = Column(Integer, ForeignKey('produtos.id'))
+    quantidade = Column(Integer)
+    preco_unitario = Column(Float)
+    custo_unitario = Column(Float)
+    lucro_unitario = Column(Float)
+    margem_lucro = Column(Float)
+
+# Criar tabelas
+Base.metadata.create_all(engine)
+
+# Criar session
+Session = sessionmaker(bind=engine)
 
 # Função para obter data/hora do Brasil
 def get_brasil_datetime():
     tz_brasil = pytz.timezone('America/Sao_Paulo')
     return datetime.now(tz_brasil)
 
-# Função para formatar data no padrão BR
 def format_date_br(dt):
     if isinstance(dt, str):
         try:
@@ -57,451 +128,222 @@ def format_date_br(dt):
 
 # Sistema de Autenticação
 def init_db():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            
-            # Tabela de usuários
-            c.execute('''CREATE TABLE IF NOT EXISTS usuarios
-                         (id SERIAL PRIMARY KEY,
-                          username TEXT UNIQUE,
-                          password TEXT,
-                          nivel TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Tabela de clientes
-            c.execute('''CREATE TABLE IF NOT EXISTS clientes
-                         (id SERIAL PRIMARY KEY,
-                          nome TEXT NOT NULL,
-                          telefone TEXT,
-                          email TEXT,
-                          cpf TEXT,
-                          endereco TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Tabela de escolas
-            c.execute('''CREATE TABLE IF NOT EXISTS escolas
-                         (id SERIAL PRIMARY KEY,
-                          nome TEXT,
-                          telefone TEXT,
-                          email TEXT,
-                          endereco TEXT,
-                          responsavel TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Tabela de produtos
-            c.execute('''CREATE TABLE IF NOT EXISTS produtos
-                         (id SERIAL PRIMARY KEY,
-                          nome TEXT NOT NULL,
-                          descricao TEXT,
-                          preco DECIMAL(10,2),
-                          custo DECIMAL(10,2),
-                          estoque_minimo INTEGER,
-                          tamanho TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          UNIQUE(nome, tamanho))''')
-            
-            # Tabela de estoque por escola
-            c.execute('''CREATE TABLE IF NOT EXISTS estoque_escolas
-                         (id SERIAL PRIMARY KEY,
-                          escola_id INTEGER REFERENCES escolas(id),
-                          produto_id INTEGER REFERENCES produtos(id),
-                          quantidade INTEGER DEFAULT 0,
-                          UNIQUE(escola_id, produto_id))''')
-            
-            # Tabela de pedidos
-            c.execute('''CREATE TABLE IF NOT EXISTS pedidos
-                         (id SERIAL PRIMARY KEY,
-                          cliente_id INTEGER REFERENCES clientes(id),
-                          escola_id INTEGER REFERENCES escolas(id),
-                          status TEXT DEFAULT 'Pendente',
-                          total DECIMAL(10,2),
-                          desconto DECIMAL(5,2) DEFAULT 0,
-                          custo_total DECIMAL(10,2),
-                          lucro_total DECIMAL(10,2),
-                          margem_lucro DECIMAL(5,2),
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            # Tabela de itens do pedido
-            c.execute('''CREATE TABLE IF NOT EXISTS itens_pedido
-                         (id SERIAL PRIMARY KEY,
-                          pedido_id INTEGER REFERENCES pedidos(id),
-                          produto_id INTEGER REFERENCES produtos(id),
-                          quantidade INTEGER,
-                          preco_unitario DECIMAL(10,2),
-                          custo_unitario DECIMAL(10,2),
-                          lucro_unitario DECIMAL(10,2),
-                          margem_lucro DECIMAL(5,2))''')
-            
-            # Inserir usuário admin padrão se não existir
-            c.execute("SELECT COUNT(*) FROM usuarios WHERE username='admin'")
-            if c.fetchone()[0] == 0:
-                senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
-                c.execute("INSERT INTO usuarios (username, password, nivel) VALUES (%s, %s, %s)",
-                         ('admin', senha_hash, 'admin'))
-            
-            conn.commit()
-            c.close()
-            
-        else:
-            # SQLite para desenvolvimento
-            c = conn.cursor()
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS usuarios
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          username TEXT UNIQUE,
-                          password TEXT,
-                          nivel TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS clientes
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          nome TEXT NOT NULL,
-                          telefone TEXT,
-                          email TEXT,
-                          cpf TEXT,
-                          endereco TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS escolas
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          nome TEXT,
-                          telefone TEXT,
-                          email TEXT,
-                          endereco TEXT,
-                          responsavel TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS produtos
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          nome TEXT NOT NULL,
-                          descricao TEXT,
-                          preco REAL,
-                          custo REAL,
-                          estoque_minimo INTEGER,
-                          tamanho TEXT,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          UNIQUE(nome, tamanho))''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS estoque_escolas
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          escola_id INTEGER,
-                          produto_id INTEGER,
-                          quantidade INTEGER DEFAULT 0,
-                          FOREIGN KEY(escola_id) REFERENCES escolas(id),
-                          FOREIGN KEY(produto_id) REFERENCES produtos(id),
-                          UNIQUE(escola_id, produto_id))''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS pedidos
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          cliente_id INTEGER,
-                          escola_id INTEGER,
-                          status TEXT DEFAULT 'Pendente',
-                          total REAL,
-                          desconto REAL DEFAULT 0,
-                          custo_total REAL,
-                          lucro_total REAL,
-                          margem_lucro REAL,
-                          criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                          FOREIGN KEY(cliente_id) REFERENCES clientes(id),
-                          FOREIGN KEY(escola_id) REFERENCES escolas(id))''')
-            
-            c.execute('''CREATE TABLE IF NOT EXISTS itens_pedido
-                         (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                          pedido_id INTEGER,
-                          produto_id INTEGER,
-                          quantidade INTEGER,
-                          preco_unitario REAL,
-                          custo_unitario REAL,
-                          lucro_unitario REAL,
-                          margem_lucro REAL,
-                          FOREIGN KEY(pedido_id) REFERENCES pedidos(id),
-                          FOREIGN KEY(produto_id) REFERENCES produtos(id))''')
-            
-            c.execute("SELECT COUNT(*) FROM usuarios WHERE username='admin'")
-            if c.fetchone()[0] == 0:
-                senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
-                c.execute("INSERT INTO usuarios (username, password, nivel) VALUES (?, ?, ?)",
-                         ('admin', senha_hash, 'admin'))
-            
-            conn.commit()
-            
+        # Verificar se usuário admin existe
+        admin = session.query(Usuario).filter_by(username='admin').first()
+        if not admin:
+            senha_hash = hashlib.sha256("admin123".encode()).hexdigest()
+            admin = Usuario(username='admin', password=senha_hash, nivel='admin')
+            session.add(admin)
+            session.commit()
     except Exception as e:
-        st.error(f"Erro ao inicializar banco de dados: {e}")
+        st.error(f"Erro ao inicializar banco: {e}")
+        session.rollback()
     finally:
-        conn.close()
+        session.close()
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def verify_login(username, password):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("SELECT * FROM usuarios WHERE username=%s", (username,))
-            user = c.fetchone()
-        else:
-            c = conn.cursor()
-            c.execute("SELECT * FROM usuarios WHERE username=?", (username,))
-            user = c.fetchone()
-        
-        if user and user[2] == hash_password(password):
+        user = session.query(Usuario).filter_by(username=username).first()
+        if user and user.password == hash_password(password):
             return user
         return None
     except Exception as e:
         st.error(f"Erro ao verificar login: {e}")
         return None
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Clientes
 def add_cliente(nome, telefone, email, cpf, endereco):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''INSERT INTO clientes (nome, telefone, email, cpf, endereco)
-                         VALUES (%s, %s, %s, %s, %s)''', 
-                     (nome, telefone, email, cpf, endereco))
-        else:
-            c = conn.cursor()
-            c.execute('''INSERT INTO clientes (nome, telefone, email, cpf, endereco)
-                         VALUES (?, ?, ?, ?, ?)''', 
-                     (nome, telefone, email, cpf, endereco))
-        
-        conn.commit()
+        cliente = Cliente(
+            nome=nome,
+            telefone=telefone,
+            email=email,
+            cpf=cpf,
+            endereco=endereco
+        )
+        session.add(cliente)
+        session.commit()
         return True
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao cadastrar cliente: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 def get_clientes():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("SELECT * FROM clientes ORDER BY nome")
-        else:
-            c = conn.cursor()
-            c.execute("SELECT * FROM clientes ORDER BY nome")
-        
-        clientes = c.fetchall()
-        return clientes
+        clientes = session.query(Cliente).order_by(Cliente.nome).all()
+        return [(c.id, c.nome, c.telefone, c.email, c.cpf, c.endereco, c.criado_em) for c in clientes]
     except Exception as e:
         st.error(f"Erro ao buscar clientes: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Escolas
 def add_escola(nome, telefone, email, endereco, responsavel):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''INSERT INTO escolas (nome, telefone, email, endereco, responsavel)
-                         VALUES (%s, %s, %s, %s, %s)''', 
-                     (nome, telefone, email, endereco, responsavel))
-        else:
-            c = conn.cursor()
-            c.execute('''INSERT INTO escolas (nome, telefone, email, endereco, responsavel)
-                         VALUES (?, ?, ?, ?, ?)''', 
-                     (nome, telefone, email, endereco, responsavel))
-        
-        conn.commit()
+        escola = Escola(
+            nome=nome,
+            telefone=telefone,
+            email=email,
+            endereco=endereco,
+            responsavel=responsavel
+        )
+        session.add(escola)
+        session.commit()
         return True
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao cadastrar escola: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 def get_escolas():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("SELECT * FROM escolas ORDER BY nome")
-        else:
-            c = conn.cursor()
-            c.execute("SELECT * FROM escolas ORDER BY nome")
-        
-        escolas = c.fetchall()
-        return escolas
+        escolas = session.query(Escola).order_by(Escola.nome).all()
+        return [(e.id, e.nome, e.telefone, e.email, e.endereco, e.responsavel, e.criado_em) for e in escolas]
     except Exception as e:
         st.error(f"Erro ao buscar escolas: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Produtos
 def add_produto(nome, descricao, preco, custo, estoque_minimo, tamanho):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            # Verificar se produto já existe
-            c.execute("SELECT id FROM produtos WHERE nome=%s AND tamanho=%s", (nome, tamanho))
-            if c.fetchone():
-                return False, "Já existe um produto com este nome e tamanho"
-            
-            c.execute('''INSERT INTO produtos (nome, descricao, preco, custo, estoque_minimo, tamanho)
-                         VALUES (%s, %s, %s, %s, %s, %s) RETURNING id''', 
-                     (nome, descricao, preco, custo, estoque_minimo, tamanho))
-            produto_id = c.fetchone()[0]
-        else:
-            c = conn.cursor()
-            c.execute("SELECT id FROM produtos WHERE nome=? AND tamanho=?", (nome, tamanho))
-            if c.fetchone():
-                return False, "Já existe um produto com este nome e tamanho"
-            
-            c.execute('''INSERT INTO produtos (nome, descricao, preco, custo, estoque_minimo, tamanho)
-                         VALUES (?, ?, ?, ?, ?, ?)''', 
-                     (nome, descricao, preco, custo, estoque_minimo, tamanho))
-            produto_id = c.lastrowid
+        # Verificar se produto já existe
+        existente = session.query(Produto).filter_by(nome=nome, tamanho=tamanho).first()
+        if existente:
+            return False, "Já existe um produto com este nome e tamanho"
         
-        conn.commit()
-        return True, produto_id
+        produto = Produto(
+            nome=nome,
+            descricao=descricao,
+            preco=preco,
+            custo=custo,
+            estoque_minimo=estoque_minimo,
+            tamanho=tamanho
+        )
+        session.add(produto)
+        session.commit()
+        return True, produto.id
+    except IntegrityError:
+        session.rollback()
+        return False, "Já existe um produto com este nome e tamanho"
     except Exception as e:
-        conn.rollback()
-        error_msg = f"Erro ao cadastrar produto: {e}"
-        st.error(error_msg)
-        return False, error_msg
+        session.rollback()
+        st.error(f"Erro ao cadastrar produto: {e}")
+        return False, str(e)
     finally:
-        conn.close()
+        session.close()
 
 def get_produtos():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("SELECT * FROM produtos ORDER BY nome, tamanho")
-        else:
-            c = conn.cursor()
-            c.execute("SELECT * FROM produtos ORDER BY nome, tamanho")
-        
-        produtos = c.fetchall()
-        return produtos
+        produtos = session.query(Produto).order_by(Produto.nome, Produto.tamanho).all()
+        return [(p.id, p.nome, p.descricao, p.preco, p.custo, p.estoque_minimo, p.tamanho, p.criado_em) for p in produtos]
     except Exception as e:
         st.error(f"Erro ao buscar produtos: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Estoque
 def vincular_produto_todas_escolas(produto_id, quantidade_inicial=0):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
         escolas = get_escolas()
-        if is_postgres:
-            c = conn.cursor()
-            for escola in escolas:
-                c.execute('''INSERT INTO estoque_escolas (escola_id, produto_id, quantidade)
-                             VALUES (%s, %s, %s)
-                             ON CONFLICT (escola_id, produto_id) DO NOTHING''', 
-                         (escola[0], produto_id, quantidade_inicial))
-        else:
-            c = conn.cursor()
-            for escola in escolas:
-                c.execute('''INSERT OR IGNORE INTO estoque_escolas (escola_id, produto_id, quantidade)
-                             VALUES (?, ?, ?)''', 
-                         (escola[0], produto_id, quantidade_inicial))
+        for escola in escolas:
+            # Verificar se já existe
+            estoque = session.query(EstoqueEscola).filter_by(
+                escola_id=escola[0], produto_id=produto_id
+            ).first()
+            
+            if not estoque:
+                novo_estoque = EstoqueEscola(
+                    escola_id=escola[0],
+                    produto_id=produto_id,
+                    quantidade=quantidade_inicial
+                )
+                session.add(novo_estoque)
         
-        conn.commit()
+        session.commit()
         return True
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao vincular produto: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 def get_estoque_escola(escola_id):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''SELECT e.id, p.nome, p.tamanho, e.quantidade, p.estoque_minimo, 
-                                p.preco, p.custo, p.id as produto_id
-                         FROM estoque_escolas e
-                         JOIN produtos p ON e.produto_id = p.id
-                         WHERE e.escola_id = %s
-                         ORDER BY p.nome, p.tamanho''', (escola_id,))
-        else:
-            c = conn.cursor()
-            c.execute('''SELECT e.id, p.nome, p.tamanho, e.quantidade, p.estoque_minimo, 
-                                p.preco, p.custo, p.id as produto_id
-                         FROM estoque_escolas e
-                         JOIN produtos p ON e.produto_id = p.id
-                         WHERE e.escola_id = ?
-                         ORDER BY p.nome, p.tamanho''', (escola_id,))
+        estoque = session.query(EstoqueEscola, Produto).join(
+            Produto, EstoqueEscola.produto_id == Produto.id
+        ).filter(EstoqueEscola.escola_id == escola_id).all()
         
-        estoque = c.fetchall()
-        return estoque
+        return [(
+            e.EstoqueEscola.id, 
+            e.Produto.nome, 
+            e.Produto.tamanho, 
+            e.EstoqueEscola.quantidade, 
+            e.Produto.estoque_minimo,
+            e.Produto.preco,
+            e.Produto.custo,
+            e.Produto.id
+        ) for e in estoque]
     except Exception as e:
         st.error(f"Erro ao buscar estoque: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 def update_estoque_escola(escola_id, produto_id, quantidade):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''INSERT INTO estoque_escolas (escola_id, produto_id, quantidade)
-                         VALUES (%s, %s, %s)
-                         ON CONFLICT (escola_id, produto_id) 
-                         DO UPDATE SET quantidade = EXCLUDED.quantidade''', 
-                     (escola_id, produto_id, quantidade))
-        else:
-            c = conn.cursor()
-            c.execute('''INSERT OR REPLACE INTO estoque_escolas (escola_id, produto_id, quantidade)
-                         VALUES (?, ?, ?)''', 
-                     (escola_id, produto_id, quantidade))
+        estoque = session.query(EstoqueEscola).filter_by(
+            escola_id=escola_id, produto_id=produto_id
+        ).first()
         
-        conn.commit()
+        if estoque:
+            estoque.quantidade = quantidade
+        else:
+            estoque = EstoqueEscola(
+                escola_id=escola_id,
+                produto_id=produto_id,
+                quantidade=quantidade
+            )
+            session.add(estoque)
+        
+        session.commit()
         return True
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao atualizar estoque: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Pedidos
 def add_pedido(cliente_id, escola_id, itens, desconto=0):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
         # Calcular totais
         total_venda = sum(item['quantidade'] * item['preco'] for item in itens)
@@ -510,189 +352,145 @@ def add_pedido(cliente_id, escola_id, itens, desconto=0):
         lucro_total = total_com_desconto - total_custo
         margem_lucro = (lucro_total / total_com_desconto * 100) if total_com_desconto > 0 else 0
         
-        if is_postgres:
-            c = conn.cursor()
-            # Inserir pedido
-            c.execute('''INSERT INTO pedidos (cliente_id, escola_id, total, desconto, custo_total, lucro_total, margem_lucro)
-                         VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id''', 
-                     (cliente_id, escola_id, total_com_desconto, desconto, total_custo, lucro_total, margem_lucro))
-            pedido_id = c.fetchone()[0]
-            
-            # Inserir itens e atualizar estoque
-            for item in itens:
-                lucro_unitario = item['preco'] - item['custo']
-                margem_unitario = (lucro_unitario / item['preco'] * 100) if item['preco'] > 0 else 0
-                
-                c.execute('''INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco_unitario, custo_unitario, lucro_unitario, margem_lucro)
-                             VALUES (%s, %s, %s, %s, %s, %s, %s)''', 
-                         (pedido_id, item['produto_id'], item['quantidade'], item['preco'], item['custo'], lucro_unitario, margem_unitario))
-                
-                # Atualizar estoque
-                c.execute('''UPDATE estoque_escolas 
-                             SET quantidade = quantidade - %s
-                             WHERE escola_id = %s AND produto_id = %s''', 
-                         (item['quantidade'], escola_id, item['produto_id']))
-        else:
-            c = conn.cursor()
-            c.execute('''INSERT INTO pedidos (cliente_id, escola_id, total, desconto, custo_total, lucro_total, margem_lucro)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)''', 
-                     (cliente_id, escola_id, total_com_desconto, desconto, total_custo, lucro_total, margem_lucro))
-            pedido_id = c.lastrowid
-            
-            for item in itens:
-                lucro_unitario = item['preco'] - item['custo']
-                margem_unitario = (lucro_unitario / item['preco'] * 100) if item['preco'] > 0 else 0
-                
-                c.execute('''INSERT INTO itens_pedido (pedido_id, produto_id, quantidade, preco_unitario, custo_unitario, lucro_unitario, margem_lucro)
-                             VALUES (?, ?, ?, ?, ?, ?, ?)''', 
-                         (pedido_id, item['produto_id'], item['quantidade'], item['preco'], item['custo'], lucro_unitario, margem_unitario))
-                
-                c.execute('''UPDATE estoque_escolas 
-                             SET quantidade = quantidade - ?
-                             WHERE escola_id = ? AND produto_id = ?''', 
-                         (item['quantidade'], escola_id, item['produto_id']))
+        # Criar pedido
+        pedido = Pedido(
+            cliente_id=cliente_id,
+            escola_id=escola_id,
+            total=total_com_desconto,
+            desconto=desconto,
+            custo_total=total_custo,
+            lucro_total=lucro_total,
+            margem_lucro=margem_lucro
+        )
+        session.add(pedido)
+        session.flush()  # Para obter o ID do pedido
         
-        conn.commit()
-        return pedido_id
+        # Adicionar itens e atualizar estoque
+        for item in itens:
+            lucro_unitario = item['preco'] - item['custo']
+            margem_unitario = (lucro_unitario / item['preco'] * 100) if item['preco'] > 0 else 0
+            
+            item_pedido = ItemPedido(
+                pedido_id=pedido.id,
+                produto_id=item['produto_id'],
+                quantidade=item['quantidade'],
+                preco_unitario=item['preco'],
+                custo_unitario=item['custo'],
+                lucro_unitario=lucro_unitario,
+                margem_lucro=margem_unitario
+            )
+            session.add(item_pedido)
+            
+            # Atualizar estoque
+            estoque = session.query(EstoqueEscola).filter_by(
+                escola_id=escola_id, produto_id=item['produto_id']
+            ).first()
+            
+            if estoque:
+                estoque.quantidade -= item['quantidade']
+        
+        session.commit()
+        return pedido.id
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao criar pedido: {e}")
         return None
     finally:
-        conn.close()
+        session.close()
 
 def get_pedidos():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''SELECT p.*, c.nome as cliente_nome, e.nome as escola_nome 
-                         FROM pedidos p
-                         LEFT JOIN clientes c ON p.cliente_id = c.id
-                         LEFT JOIN escolas e ON p.escola_id = e.id
-                         ORDER BY p.criado_em DESC''')
-        else:
-            c = conn.cursor()
-            c.execute('''SELECT p.*, c.nome as cliente_nome, e.nome as escola_nome 
-                         FROM pedidos p
-                         LEFT JOIN clientes c ON p.cliente_id = c.id
-                         LEFT JOIN escolas e ON p.escola_id = e.id
-                         ORDER BY p.criado_em DESC''')
+        pedidos = session.query(Pedido, Cliente, Escola).join(
+            Cliente, Pedido.cliente_id == Cliente.id
+        ).join(
+            Escola, Pedido.escola_id == Escola.id
+        ).order_by(Pedido.criado_em.desc()).all()
         
-        pedidos = c.fetchall()
-        return pedidos
+        return [(
+            p.Pedido.id, p.Pedido.cliente_id, p.Pedido.escola_id, p.Pedido.status,
+            p.Pedido.total, p.Pedido.desconto, p.Pedido.custo_total, p.Pedido.lucro_total,
+            p.Pedido.margem_lucro, p.Pedido.criado_em, p.Cliente.nome, p.Escola.nome
+        ) for p in pedidos]
     except Exception as e:
         st.error(f"Erro ao buscar pedidos: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 def update_pedido_status(pedido_id, novo_status):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("UPDATE pedidos SET status = %s WHERE id = %s", (novo_status, pedido_id))
-        else:
-            c = conn.cursor()
-            c.execute("UPDATE pedidos SET status = ? WHERE id = ?", (novo_status, pedido_id))
-        
-        conn.commit()
-        return True
+        pedido = session.query(Pedido).filter_by(id=pedido_id).first()
+        if pedido:
+            pedido.status = novo_status
+            session.commit()
+            return True
+        return False
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao atualizar status: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 # Funções de Gestão de Usuários
 def add_usuario(username, password, nivel):
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
         senha_hash = hash_password(password)
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("INSERT INTO usuarios (username, password, nivel) VALUES (%s, %s, %s)",
-                     (username, senha_hash, nivel))
-        else:
-            c = conn.cursor()
-            c.execute("INSERT INTO usuarios (username, password, nivel) VALUES (?, ?, ?)",
-                     (username, senha_hash, nivel))
-        
-        conn.commit()
+        usuario = Usuario(
+            username=username,
+            password=senha_hash,
+            nivel=nivel
+        )
+        session.add(usuario)
+        session.commit()
         return True
     except Exception as e:
-        conn.rollback()
+        session.rollback()
         st.error(f"Erro ao criar usuário: {e}")
         return False
     finally:
-        conn.close()
+        session.close()
 
 def get_usuarios():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute("SELECT id, username, nivel, criado_em FROM usuarios ORDER BY username")
-        else:
-            c = conn.cursor()
-            c.execute("SELECT id, username, nivel, criado_em FROM usuarios ORDER BY username")
-        
-        usuarios = c.fetchall()
-        return usuarios
+        usuarios = session.query(Usuario).order_by(Usuario.username).all()
+        return [(u.id, u.username, u.nivel, u.criado_em) for u in usuarios]
     except Exception as e:
         st.error(f"Erro ao buscar usuários: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
 # Sistema de IA
 def previsao_vendas():
-    # Simulação de previsão
     meses = ['Próximo Mês', '2° Mês', '3° Mês', '4° Mês', '5° Mês', '6° Mês']
     vendas = [12000, 15000, 18000, 22000, 25000, 29000]
     return meses, vendas
 
 def alertas_estoque():
-    conn = get_db_connection()
-    is_postgres = 'psycopg2' in str(type(conn))
-    
+    session = Session()
     try:
-        if is_postgres:
-            c = conn.cursor()
-            c.execute('''SELECT e.escola_id, esc.nome as escola_nome, p.nome as produto_nome, p.tamanho,
-                                e.quantidade, p.estoque_minimo
-                         FROM estoque_escolas e
-                         JOIN produtos p ON e.produto_id = p.id
-                         JOIN escolas esc ON e.escola_id = esc.id
-                         WHERE e.quantidade <= p.estoque_minimo''')
-        else:
-            c = conn.cursor()
-            c.execute('''SELECT e.escola_id, esc.nome as escola_nome, p.nome as produto_nome, p.tamanho,
-                                e.quantidade, p.estoque_minimo
-                         FROM estoque_escolas e
-                         JOIN produtos p ON e.produto_id = p.id
-                         JOIN escolas esc ON e.escola_id = esc.id
-                         WHERE e.quantidade <= p.estoque_minimo''')
+        alertas = session.query(EstoqueEscola, Produto, Escola).join(
+            Produto, EstoqueEscola.produto_id == Produto.id
+        ).join(
+            Escola, EstoqueEscola.escola_id == Escola.id
+        ).filter(EstoqueEscola.quantidade <= Produto.estoque_minimo).all()
         
-        alertas = c.fetchall()
-        return alertas
+        return [(
+            a.EstoqueEscola.escola_id, a.Escola.nome, a.Produto.nome, a.Produto.tamanho,
+            a.EstoqueEscola.quantidade, a.Produto.estoque_minimo
+        ) for a in alertas]
     except Exception as e:
         st.error(f"Erro ao buscar alertas: {e}")
         return []
     finally:
-        conn.close()
+        session.close()
 
-# Interface Principal
+# Interface Principal (mantida igual)
 def main():
     init_db()
     
@@ -715,7 +513,7 @@ def show_login():
         if submit:
             user = verify_login(username, password)
             if user:
-                st.session_state.user = user
+                st.session_state.user = (user.id, user.username, user.password, user.nivel)
                 st.rerun()
             else:
                 st.error("Usuário ou senha inválidos")
@@ -725,7 +523,6 @@ def show_main_app():
     st.sidebar.write(f"**Nível:** {st.session_state.user[3]}")
     st.sidebar.write(f"**Data:** {format_date_br(get_brasil_datetime())}")
     
-    # Menu lateral
     menu_options = ["📊 Dashboard", "👥 Gestão de Clientes", "🏫 Gestão de Escolas", 
                    "📦 Gestão de Produtos", "📦 Sistema de Pedidos", "📈 Relatórios", "🤖 Sistema A.I."]
     
@@ -759,7 +556,6 @@ def show_main_app():
 def show_dashboard():
     st.title("📊 Dashboard Principal")
     
-    # Métricas rápidas
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -869,7 +665,6 @@ def show_school_management():
             
             st.write(f"### Estoque da Escola: {escola_nome}")
             
-            # Mostrar estoque atual
             estoque = get_estoque_escola(escola_id)
             
             if not estoque:
@@ -890,14 +685,12 @@ def show_school_management():
             st.markdown("---")
             st.subheader("Ajustar Estoque")
             
-            # Formulário para ajustar estoque
             produto_ajuste = st.selectbox("Selecione o Produto", 
                                          [f"{p[0]} - {p[1]} ({p[6]})" for p in produtos])
             
             if produto_ajuste:
                 produto_id = int(produto_ajuste.split(' - ')[0])
                 
-                # Buscar quantidade atual
                 estoque_atual = 0
                 for item in estoque:
                     if item[7] == produto_id:
@@ -933,11 +726,9 @@ def show_product_management():
             with col3:
                 estoque_minimo = st.number_input("Estoque Mínimo", min_value=0, value=5)
             with col4:
-                # Tamanhos padronizados
                 tamanhos = ["", "PP", "P", "M", "G", "GG", "EXG", "2", "4", "6", "8", "10", "12", "Único"]
                 tamanho = st.selectbox("Tamanho *", tamanhos)
             
-            # Opção para vincular automaticamente às escolas
             escolas = get_escolas()
             if escolas:
                 vincular_escolas = st.checkbox("Vincular este produto a todas as escolas automaticamente", value=True)
@@ -954,13 +745,11 @@ def show_product_management():
                     if sucesso:
                         st.success("Produto cadastrado com sucesso!")
                         
-                        # Vincular automaticamente às escolas
                         if vincular_escolas and escolas:
                             produto_id = resultado
                             if vincular_produto_todas_escolas(produto_id, estoque_inicial):
                                 st.success(f"Produto vinculado automaticamente a {len(escolas)} escolas!")
                         
-                        # Calcular margem
                         if preco > 0 and custo > 0:
                             margem = ((preco - custo) / preco) * 100
                             st.info(f"Margem de lucro: {margem:.1f}%")
@@ -980,7 +769,6 @@ def show_product_management():
                 st.write(f"**Custo:** R$ {produto[4]:.2f}")
                 st.write(f"**Estoque Mínimo:** {produto[5]}")
                 
-                # Calcular margem
                 if produto[3] > 0 and produto[4] > 0:
                     margem = ((produto[3] - produto[4]) / produto[3]) * 100
                     lucro_unitario = produto[3] - produto[4]
@@ -1031,7 +819,6 @@ def show_order_management():
             for i in range(3):
                 col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
                 with col1:
-                    # Mostrar apenas produtos com estoque
                     produtos_com_estoque = []
                     for produto in produtos:
                         estoque_disponivel = 0
@@ -1082,7 +869,6 @@ def show_order_management():
                         'custo': custo
                     })
             
-            # Resumo do pedido
             if itens:
                 st.subheader("Resumo do Pedido")
                 total_venda = sum(item['quantidade'] * item['preco'] for item in itens)
@@ -1131,7 +917,6 @@ def show_order_management():
                     st.write(f"**Lucro:** R$ {pedido[7]:.2f}")
                     st.write(f"**Margem:** {pedido[8]:.1f}%")
                 
-                # Botões para alterar status
                 st.write("**Alterar Status:**")
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
